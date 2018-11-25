@@ -16,6 +16,7 @@ class CPU {
     uint8_t X;
     uint8_t Y;
     uint16_t PC;
+    // technically should be 16bit but this makes underflow / overflow easier
     uint8_t SP;
 
     // CPU flags
@@ -40,13 +41,19 @@ class CPU {
 
 
     // memory functions
-    void stack_push(uint16_t);
-    uint16_t stack_pop();
+    void stack_push(uint8_t);
+    uint8_t stack_pop();
+
+    void address_stack_push(uint16_t);
+    uint16_t address_stack_pop();
 
 
     // opcode implementation
     void compare(uint8_t, uint8_t);
-    void load_flags(uint8_t);
+    void sign_zero_flags(uint8_t);
+    void rotate_left(uint8_t*);
+    void rotate_right(uint8_t*);
+    void shift_right(uint8_t*);
 
     // addressing modes
     uint8_t* zero_page_indexed_X(uint8_t);
@@ -80,22 +87,35 @@ void CPU::load_program(char* program, int size) {
   printf("intializing PC with %x\n", PC);
 }
 
-void CPU::stack_push(uint16_t addr) {
-  uint16_t stack_offset = 0x100;
+void CPU::address_stack_push(uint16_t addr) {
   uint8_t lower_byte = (uint8_t) addr; // does this cast work?
   uint8_t upper_byte = (uint8_t) addr >> 8;
-  memory.set_item(SP, upper_byte);
-  memory.set_item(SP - 1, lower_byte);
-  SP = SP - 2;
+  stack_push(upper_byte);
+  stack_push(lower_byte);
 }
 
-// check if little / big endian makes a difference
-uint16_t CPU::stack_pop() {
-  uint16_t stack_offset = 0x100;
-  uint8_t lower_byte = memory.get_item(stack_offset + SP + 1);
-  uint8_t upper_byte = memory.get_item(stack_offset + SP + 2);
+// check if little / big endian makes a difference?
+uint16_t CPU::address_stack_pop() {
+  uint8_t lower_byte = stack_pop();
+  uint8_t upper_byte = stack_pop();
   uint16_t val = upper_byte << 8 | lower_byte;
-  SP = SP + 2;
+  return val;
+}
+
+// TODO: make stack_offset a global variable or something?
+void CPU::stack_push(uint8_t value) {
+  uint16_t stack_offset = 0x100;
+  memory.set_item(stack_offset + SP, value);
+  // simulate underflow
+  SP -= 1;
+}
+
+uint8_t CPU::stack_pop() {
+  uint16_t stack_offset = 0x100;
+  uint16_t stack_address = stack_offset + SP + 1;
+  uint8_t value = memory.get_item(stack_address);
+  SP += 1;
+  return value;
 }
 
 // basically one giant switch case
@@ -108,17 +128,21 @@ void CPU::execute_cycle() {
   uint16_t address = arg2 << 8 | arg1;
   printf("%x: %x %x %x\n", PC, opcode, arg1, arg2);
 
+  // used to avoid scope change in switch - is there a better way to do this?
+  uint8_t temp;
+  uint8_t* temp_pointer;
+
   switch(opcode) {
 
     // JSR: a
     case 0x20:
-      stack_push(PC + 2); // push next address - 1 to stack
+      address_stack_push(PC + 2); // push next address - 1 to stack
       PC = address;
       break;
 
     // RTS
     case 0x60:
-      PC = stack_pop() + 1; // add one to stored address
+      PC = address_stack_pop() + 1; // add one to stored address
       break;
 
     // NOP
@@ -198,13 +222,13 @@ void CPU::execute_cycle() {
       PC += 2;
       break;
 
-    // CPX: zero page
+    // CPY: zero page
     case 0xc4:
       compare(Y, memory.get_item(arg1));
       PC += 2;
       break;
 
-    // CPX: absolute
+    // CPY: absolute
     case 0xcc:
       compare(Y, memory.get_item(address));
       PC += 3;
@@ -285,126 +309,126 @@ void CPU::execute_cycle() {
     // LDA immediate
     case 0xa9:
       accumulator = arg1;
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 2;
       break;
 
     // LDA zero page
     case 0xa5:
       accumulator = memory.get_item(arg1);
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 2;
       break;
 
     // LDA zero page X
     case 0xb5:
       accumulator = *(zero_page_indexed_X(arg1));
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 2;
       break;
 
     // LDA absolute
     case 0xad:
       accumulator = memory.get_item(address);
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 3;
       break;
 
     // LDA Absolute X
     case 0xbd:
       accumulator = *(absolute_indexed_X(address));
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 3;
       break;
 
     // LDA absolute Y
     case 0xb9:
       accumulator = *(absolute_indexed_Y(address));
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 3;
       break;
 
     // LDA indirect X
     case 0xa1:
       accumulator = *(indexed_indirect(arg1));
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 2;
       break;
 
     // LDA indirect Y
     case 0xb1:
       accumulator = *(indirect_indexed(arg1));
-      load_flags(accumulator);
+      sign_zero_flags(accumulator);
       PC += 2;
       break;
 
     // LDX immediate
     case 0xa2:
       X = arg1;
-      load_flags(X);
+      sign_zero_flags(X);
       PC += 2;
       break;
 
     // LDX zero page
     case 0xa6:
       X = memory.get_item(arg1);
-      load_flags(X);
+      sign_zero_flags(X);
       PC += 2;
       break;
 
     // LDX zero page Y
     case 0xb6:
       X = *(zero_page_indexed_Y(arg1));
-      load_flags(X);
+      sign_zero_flags(X);
       PC += 2;
       break;
 
     // LDX absolute
     case 0xae:
       X = memory.get_item(address);
-      load_flags(X);
+      sign_zero_flags(X);
       PC += 3;
       break;
 
     // LDX absolute Y
     case 0xbe:
       X = *(absolute_indexed_Y(address));
-      load_flags(X);
+      sign_zero_flags(X);
       PC += 3;
       break;
 
     // LDY immediate
     case 0xa0:
       Y = arg1;
-      load_flags(Y);
+      sign_zero_flags(Y);
       PC += 2;
       break;
 
     // LDY zero page
     case 0xa4:
       Y = memory.get_item(arg1);
-      load_flags(Y);
+      sign_zero_flags(Y);
       PC += 2;
       break;
 
     // LDY zero page X
     case 0xb4:
       Y = *(zero_page_indexed_X(arg1));
-      load_flags(Y);
+      sign_zero_flags(Y);
       PC += 2;
       break;
 
     // LDY absolute
     case 0xac:
       Y = memory.get_item(address);
-      load_flags(Y);
+      sign_zero_flags(Y);
       PC += 3;
       break;
 
     // LDY absolute X
     case 0xbc:
       Y = *(absolute_indexed_X(address));
-      load_flags(Y);
+      sign_zero_flags(Y);
       PC += 3;
       break;
 
@@ -554,6 +578,418 @@ void CPU::execute_cycle() {
       PC += 3;
       break;
 
+    // TYA
+    case 0x98:
+      accumulator = Y;
+      sign_zero_flags(accumulator);
+      PC += 1;
+      break;
+
+    // TXS
+    case 0x9a:
+      SP = X;
+      PC += 1;
+      break;
+
+    // TXA
+    case 0x8a:
+      accumulator = X;
+      sign_zero_flags(accumulator);
+      PC += 1;
+      break;
+
+    // TSX
+    case 0xba:
+      X = SP;
+      sign_zero_flags(X);
+      PC += 1;
+      break;
+
+    // TAY
+    case 0xa8:
+      Y = accumulator;
+      sign_zero_flags(Y);
+      PC += 1;
+      break;
+
+    // TAX
+    case 0xaa:
+      X = accumulator;
+      sign_zero_flags(X);
+      PC += 1;
+      break;
+
+    // ROR accumulator
+    case 0x6a:
+      rotate_right(&accumulator);
+      PC += 1;
+      break;
+
+    // ROR zero page
+    case 0x66:
+      rotate_right(memory.get_pointer(arg1));
+      PC += 2;
+      break;
+
+    // ROR zero page X
+    case 0x76:
+      rotate_right(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // ROR absolute
+    case 0x6e:
+      rotate_right(memory.get_pointer(address));
+      PC += 3;
+      break;
+
+    // ROR absolute X
+    case 0x7e:
+      rotate_right(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // ROL accumulator
+    case 0x2a:
+      rotate_left(&accumulator);
+      PC += 1;
+      break;
+
+    // ROL zero page
+    case 0x26:
+      rotate_left(memory.get_pointer(arg1));
+      PC += 2;
+      break;
+
+    // ROL zero page X
+    case 0x36:
+      rotate_left(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // ROL absolute
+    case 0x2e:
+      rotate_left(memory.get_pointer(address));
+      PC += 3;
+      break;
+
+    // ROL absolute X
+    case 0x3e:
+      rotate_left(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // LSR accumulator
+    case 0x4a:
+      shift_right(&accumulator);
+      PC += 1;
+      break;
+
+    // LSR zero page
+    case 0x46:
+      shift_right(memory.get_pointer(arg1));
+      PC += 2;
+      break;
+
+    // LSR zero page X
+    case 0x56:
+      shift_right(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // LSR absolute
+    case 0x4e:
+      shift_right(memory.get_pointer(address));
+      PC += 3;
+      break;
+
+    // LSR absolute X
+    case 0x5e:
+      shift_right(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // PLA
+    case 0x68:
+      accumulator = stack_pop();
+      sign_zero_flags(accumulator);
+      PC += 1;
+      break;
+
+    // PHA
+    case 0x48:
+      stack_push(accumulator);
+      PC += 1;
+      break;
+
+    // INY
+    case 0xc8:
+      Y += 1;
+      sign_zero_flags(Y);
+      PC += 1;
+      break;
+
+    // INX
+    case 0xe8:
+      X += 1;
+      sign_zero_flags(X);
+      PC += 1;
+      break;
+
+    // INC zero page
+    case 0xe6:
+      temp = memory.get_item(arg1) + 1;
+      memory.set_item(arg1, temp);
+      sign_zero_flags(temp);
+      PC += 2;
+      break;
+
+    // INC zero page X
+    case 0xf6:
+      temp_pointer = zero_page_indexed_X(arg1);
+      *temp_pointer = *temp_pointer + 1;
+      sign_zero_flags(*temp_pointer);
+      PC += 2;
+      break;
+
+    // INC absolute
+    case 0xee:
+      temp = memory.get_item(address) + 1;
+      memory.set_item(address, temp);
+      sign_zero_flags(temp);
+      PC += 3;
+      break;
+
+    // INC absolute X
+    case 0xfe:
+      temp_pointer = absolute_indexed_X(address);
+      *temp_pointer = *temp_pointer + 1;
+      sign_zero_flags(*temp_pointer);
+      PC += 3;
+      break;
+
+    // EOR immediate
+    case 0x49:
+      accumulator ^= arg1;
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // EOR zero page
+    case 0x45:
+      accumulator ^= memory.get_item(arg1);
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // EOR zero page X
+    case 0x55:
+      accumulator ^= *(zero_page_indexed_X(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // EOR absolute
+    case 0x4d:
+      accumulator ^= memory.get_item(address);
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // EOR absolute X
+    case 0x5d:
+      accumulator ^= *(absolute_indexed_X(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // EOR absolute Y
+    case 0x59:
+      accumulator ^= *(absolute_indexed_Y(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // EOR indirect X
+    case 0x41:
+      accumulator ^= *(indexed_indirect(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // EOR indirect Y
+    case 0x51:
+      accumulator ^= *(indirect_indexed(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // DEY
+    case 0x88:
+      Y = Y - 1;
+      sign_zero_flags(Y);
+      PC += 1;
+      break;
+
+    // DEX
+    case 0xca:
+      X = X - 1;
+      sign_zero_flags(X);
+      PC += 1;
+      break;
+
+    // DEC zero page
+    case 0xc6:
+      temp = memory.get_item(arg1) - 1;
+      memory.set_item(arg1, temp);
+      sign_zero_flags(temp);
+      PC += 2;
+      break;
+
+    // DEC zero page X
+    case 0xd6:
+      temp_pointer = zero_page_indexed_X(arg1);
+      *temp_pointer = *temp_pointer - 1;
+      sign_zero_flags(*temp_pointer);
+      PC += 2;
+      break;
+
+    // DEC absolute
+    case 0xce:
+      temp = memory.get_item(address) - 1;
+      memory.set_item(address, temp);
+      sign_zero_flags(temp);
+      PC += 3;
+      break;
+
+    // DEC absolute X
+    case 0xde:
+      temp_pointer = absolute_indexed_X(address);
+      *temp_pointer = *temp_pointer - 1;
+      sign_zero_flags(*temp_pointer);
+      PC += 3;
+      break;
+
+    // AND immediate
+    case 0x29:
+      accumulator &= arg1;
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // AND zero page
+    case 0x25:
+      accumulator &= memory.get_item(arg1);
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // AND zero page X
+    case 0x35:
+      accumulator &= *(zero_page_indexed_X(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // AND absolute
+    case 0x2d:
+      accumulator &= memory.get_item(address);
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // AND absolute X
+    case 0x3d:
+      accumulator &= *(absolute_indexed_X(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // AND absolute Y
+    case 0x39:
+      accumulator &= *(absolute_indexed_Y(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // AND indirect X
+    case 0x21:
+      accumulator &= *(indexed_indirect(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // AND indirect Y
+    case 0x31:
+      accumulator &= *(indirect_indexed(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // ORA immediate
+    case 0x09:
+      accumulator |= arg1;
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // ORA zero page
+    case 0x05:
+      accumulator |= memory.get_item(arg1);
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // ORA zero page X
+    case 0x15:
+      accumulator |= *(zero_page_indexed_X(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // ORA absolute
+    case 0x0d:
+      accumulator |= memory.get_item(address);
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // ORA absolute X
+    case 0x1d:
+      accumulator |= *(absolute_indexed_X(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // ORA absolute Y
+    case 0x19:
+      accumulator |= *(absolute_indexed_Y(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // ORA indirect X
+    case 0x01:
+      accumulator |= *(indexed_indirect(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // ORA indirect Y
+    case 0x11:
+      accumulator |= *(indirect_indexed(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+
+
+
+
+
+
+
+
 
 
 
@@ -570,13 +1006,39 @@ void CPU::run() {
   }
 }
 
+// POTENTIAL BUG -> zero flag set when A == 0 or new_val == 0 (??)
+// going with the second, correct if wrong
+void CPU::rotate_right(uint8_t* operand) {
+  uint8_t new_value = (carry << 7) | (*operand >> 1);
+  carry = *operand & 0x1;
+  zero = (new_value == 0);
+  sign = (new_value >= 0x80);
+  *operand = new_value;
+}
+
+void CPU::rotate_left(uint8_t* operand) {
+  uint8_t new_value = (*operand << 1) | carry;
+  carry = (*operand >> 7) & 0x1;
+  zero = (new_value == 0);
+  sign = (new_value >= 0x80);
+  *operand = new_value;
+}
+
+void CPU::shift_right(uint8_t* operand) {
+  uint8_t new_value = *operand >> 1;
+  carry = *operand & 0x1;
+  zero = (new_value == 0);
+  sign = (new_value >= 0x80); // this is basically impossible i assume
+  *operand = new_value;
+}
+
 void CPU::compare(uint8_t operand, uint8_t argument) {
   carry = (operand >= argument);
   zero = (operand == argument);
-  sign = (operand >= 0x80); // positive two's complement
+  sign = (operand >= 0x80); // negative two's complement
 }
 
-void CPU::load_flags(uint8_t val) {
+void CPU::sign_zero_flags(uint8_t val) {
   sign = (val >= 0x80);
   zero = (val == 0);
 }
