@@ -39,6 +39,10 @@ class CPU {
     void execute_cycle();
     void run();
 
+    // flag operations
+    uint8_t get_flags_as_byte();
+    void set_flags_from_byte(uint8_t);
+
 
     // memory functions
     void stack_push(uint8_t);
@@ -47,6 +51,9 @@ class CPU {
     void address_stack_push(uint16_t);
     uint16_t address_stack_pop();
 
+    // debugging
+    void print_register_values();
+
 
     // opcode implementation
     void compare(uint8_t, uint8_t);
@@ -54,6 +61,8 @@ class CPU {
     void rotate_left(uint8_t*);
     void rotate_right(uint8_t*);
     void shift_right(uint8_t*);
+    void arithmetic_shift_left(uint8_t*);
+    void add_with_carry(uint8_t);
 
     // addressing modes
     uint8_t* zero_page_indexed_X(uint8_t);
@@ -66,30 +75,9 @@ class CPU {
 
 };
 
-// ideally loading would mean a pointer but I'll keep this for now, sigh
-// not correct b/c bank switching means needless IOs instead of a simple pointer swap LMAOO
-void CPU::load_program(char* program, int size) {
-  bool mirror = false;
-  if (size == 0x4000) {
-    mirror = true;
-  }
-  int program_offset = 0x4000;
-  for (int i = 0; i < size; i++) {
-    memory.set_item(0x4000 + i, *(program + i));
-    if (mirror) {
-      memory.set_item(0xC000 + i, *(program + i));
-    }
-  }
-  // need to cast to (uint16_t) ?
-  PC = (memory.get_item(0xfffd) << 8) | memory.get_item(0xfffc);
-  SP = 0xff;
-  valid = true;
-  printf("intializing PC with %x\n", PC);
-}
-
 void CPU::address_stack_push(uint16_t addr) {
   uint8_t lower_byte = (uint8_t) addr; // does this cast work?
-  uint8_t upper_byte = (uint8_t) addr >> 8;
+  uint8_t upper_byte = ((uint16_t) addr) >> 8;
   stack_push(upper_byte);
   stack_push(lower_byte);
 }
@@ -97,8 +85,8 @@ void CPU::address_stack_push(uint16_t addr) {
 // check if little / big endian makes a difference?
 uint16_t CPU::address_stack_pop() {
   uint8_t lower_byte = stack_pop();
-  uint8_t upper_byte = stack_pop();
-  uint16_t val = upper_byte << 8 | lower_byte;
+  uint16_t upper_byte = (uint16_t) stack_pop();
+  uint16_t val = ((uint16_t) upper_byte << 8) | lower_byte;
   return val;
 }
 
@@ -118,6 +106,10 @@ uint8_t CPU::stack_pop() {
   return value;
 }
 
+void CPU::print_register_values() {
+  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X\n", PC, accumulator, X, Y, get_flags_as_byte(), SP);
+}
+
 // basically one giant switch case
 // how can i make this better?
 void CPU::execute_cycle() {
@@ -126,7 +118,7 @@ void CPU::execute_cycle() {
   uint8_t arg1 = memory.get_item(PC + 1);
   uint8_t arg2 = memory.get_item(PC + 2);
   uint16_t address = arg2 << 8 | arg1;
-  printf("%x: %x %x %x\n", PC, opcode, arg1, arg2);
+  print_register_values();
 
   // used to avoid scope change in switch - is there a better way to do this?
   uint8_t temp;
@@ -566,15 +558,17 @@ void CPU::execute_cycle() {
     case 0x24:
       zero = ((memory.get_item(arg1) & accumulator) == 0);
       overflow = (memory.get_item(arg1) >> 6) & 1;
-      sign = (memory.get_item(arg1) >> 7) & 1;
+      sign = memory.get_item(arg1) >= 0x80;
       PC += 2;
       break;
 
     // BIT absolute
     case 0x2c:
+      printf("%x", memory.get_item(address));
+      valid = false;
       zero = ((memory.get_item(address) & accumulator) == 0);
       overflow = (memory.get_item(address) >> 6) & 1;
-      sign = (memory.get_item(address) >> 7) & 1;
+      sign = memory.get_item(address) >= 0x80;
       PC += 3;
       break;
 
@@ -1072,6 +1066,59 @@ void CPU::execute_cycle() {
       PC += 3;
       break;
 
+    // SBC immediate
+    case 0xe9:
+      add_with_carry(~arg1);
+      PC += 2;
+      break;
+
+    // SBC zero page
+    case 0xe5:
+      add_with_carry(~memory.get_item(arg1));
+      PC += 2;
+      break;
+
+    // SBC zero page X
+    case 0xf5:
+      add_with_carry(~*(zero_page_indexed_X(arg1)));
+      PC += 2;
+      break;
+
+    // SBC absolute
+    case 0xed:
+      add_with_carry(~memory.get_item(address));
+      PC += 3;
+      break;
+
+    // SBC absolute X
+    case 0xfd:
+      add_with_carry(~*(absolute_indexed_X(address)));
+      PC += 3;
+      break;
+
+    // SBC absolute Y
+    case 0xf9:
+      add_with_carry(~*(absolute_indexed_Y(address)));
+      PC += 3;
+      break;
+
+    // SBC indirect X
+    case 0xe1:
+      add_with_carry(~*(indexed_indirect(arg1)));
+      PC += 2;
+      break;
+
+    // SBC indirect Y
+    case 0xf1:
+      add_with_carry(~*(indirect_indexed(arg1)));
+      PC += 2;
+      break;
+
+    // BRK
+    case 0x00:
+      PC += 2; // something online said this was 2 - includes a padding byte
+
+
 
 
 
@@ -1094,10 +1141,10 @@ void CPU::add_with_carry(uint8_t operand) {
   accumulator += operand;
   zero = (accumulator == 0);
   sign = (accumulator >= 0x80);
-  // signed overflow
+  // signed overflow (i don't know if this works rip)
   overflow = ((before ^ accumulator) & (operand ^ accumulator) & 0x80) >> 7;
   // unsigned overflow
-  carry = (acccumulator < before) && (accumulator < operand);
+  carry = (accumulator < before) && (accumulator < operand);
 }
 
 // no decimal, B flag since NES 6502 doesn't support
@@ -1111,7 +1158,7 @@ uint8_t CPU::get_flags_as_byte() {
   return flags;
 }
 
-void set_flags_from_byte(uint8_t flags) {
+void CPU::set_flags_from_byte(uint8_t flags) {
   carry = flags & 0x1;
   zero = (flags >> 1) & 0x1;
   interrupt_disable = (flags >> 2) & 0x1;
@@ -1204,18 +1251,37 @@ uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
 }
 
 
+// ideally loading would mean a pointer but I'll keep this for now, sigh
+// not correct b/c bank switching means needless IOs instead of a simple pointer swap LMAOO
+void CPU::load_program(char* program, int size) {
+  bool mirror = false;
+  if (size == 0x4000) {
+    mirror = true;
+  }
+  int program_offset = 0x8000;
+  for (int i = 0; i < size; i++) {
+    memory.set_item(program_offset + i, *(program + i));
+    if (mirror) {
+      memory.set_item(program_offset + 0x4000 + i, *(program + i));
+    }
+  }
+  // need to cast to (uint16_t) ?
+  PC = (memory.get_item(0xfffd) << 8) | memory.get_item(0xfffc);
+  SP = 0xff;
+  valid = true;
+}
 
 int main() {
   CPU nes;
-  ifstream rom("read_test.nes", ios::binary | ios::ate);
+  ifstream rom("01-basics.nes", ios::binary | ios::ate);
   streamsize size = rom.tellg();
   rom.seekg(0, ios::beg);
 
   char buffer[size];
   if (rom.read(buffer, size)) {
-    printf("Read in ROM data\n");
     int prg_size = buffer[4] * 0x4000; // multiplier
-    char* prg_data = buffer + 16; // techncially doesn't count for possibility of trainer but that's ok
+    // techncially doesn't count for possibility of trainer but that's ok bc those are rare at the moment
+    char* prg_data = buffer + 16;
     nes.load_program(prg_data, prg_size);
     nes.run();
   }
