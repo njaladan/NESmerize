@@ -33,3 +33,7 @@
 
 # No licensed material LMAO
 *.nes
+
+# don't upload my tests thanks
+test.cpp
+taken.c
