@@ -16,7 +16,7 @@ class CPU {
     uint8_t X;
     uint8_t Y;
     uint16_t PC;
-    // technically should be 16bit but this makes underflow / overflow easier
+    // only holds lower byte of the real SP
     uint8_t SP;
 
     // CPU flags
@@ -28,7 +28,7 @@ class CPU {
     bool decimal; // has no effect on NES 6502 bc no decimal mode included
     // 2-bit B flag should be here, but I don't think it has an effect on the CPU
 
-    // debugging
+    // for debugging only
     bool valid;
 
     // "hardware" connections
@@ -982,13 +982,95 @@ void CPU::execute_cycle() {
       PC += 2;
       break;
 
+    // ADC immediate
+    case 0x69:
+      add_with_carry(arg1);
+      PC += 2;
+      break;
 
+    // ADC zero page
+    case 0x65:
+      add_with_carry(memory.get_item(arg1));
+      PC += 2;
+      break;
 
+    // ADC zero page X
+    case 0x75:
+      add_with_carry(*(zero_page_indexed_X(arg1)));
+      PC += 2;
+      break;
 
+    // ADC absolute
+    case 0x6d:
+      add_with_carry(memory.get_item(address));
+      PC += 3;
+      break;
 
+    // ADC absolute X
+    case 0x7d:
+      add_with_carry(*(absolute_indexed_X(address)));
+      PC += 3;
+      break;
 
+    // ADC absolute Y
+    case 0x79:
+      add_with_carry(*(absolute_indexed_Y(address)));
+      PC += 3;
+      break;
 
+    // ADC indirect X
+    case 0x61:
+      add_with_carry(*(indexed_indirect(arg1)));
+      PC += 2;
+      break;
 
+    // ADC indirect Y
+    case 0x71:
+      add_with_carry(*(indirect_indexed(arg1)));
+      PC += 2;
+      break;
+
+    // PHP
+    case 0x08:
+      stack_push(get_flags_as_byte());
+      PC += 1;
+      break;
+
+    // PLP
+    case 0x28:
+      set_flags_from_byte(stack_pop());
+      PC += 1;
+      break;
+
+    // ASL accumulator
+    case 0x0a:
+      arithmetic_shift_left(&accumulator);
+      PC += 1;
+      break;
+
+    // ASL zero page
+    case 0x06:
+      arithmetic_shift_left(memory.get_pointer(arg1));
+      PC += 2;
+      break;
+
+    // ASL zero page X
+    case 0x16:
+      arithmetic_shift_left(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // ASL absolute
+    case 0x0e:
+      arithmetic_shift_left(memory.get_pointer(address));
+      PC += 3;
+      break;
+
+    // ASL absolute X
+    case 0x1e:
+      arithmetic_shift_left(absolute_indexed_X(address));
+      PC += 3;
+      break;
 
 
 
@@ -1004,6 +1086,37 @@ void CPU::run() {
   while(valid) {
     execute_cycle();
   }
+}
+
+// is it proper practice to assume this modifies the accumulator?
+void CPU::add_with_carry(uint8_t operand) {
+  uint8_t before = accumulator;
+  accumulator += operand;
+  zero = (accumulator == 0);
+  sign = (accumulator >= 0x80);
+  // signed overflow
+  overflow = ((before ^ accumulator) & (operand ^ accumulator) & 0x80) >> 7;
+  // unsigned overflow
+  carry = (acccumulator < before) && (accumulator < operand);
+}
+
+// no decimal, B flag since NES 6502 doesn't support
+uint8_t CPU::get_flags_as_byte() {
+  uint8_t flags = 0;
+  flags |= (sign << 7);
+  flags |= (overflow << 6);
+  flags |= (interrupt_disable << 2);
+  flags |= (zero << 1);
+  flags |= carry;
+  return flags;
+}
+
+void set_flags_from_byte(uint8_t flags) {
+  carry = flags & 0x1;
+  zero = (flags >> 1) & 0x1;
+  interrupt_disable = (flags >> 2) & 0x1;
+  overflow = (flags >> 6) & 0x1;
+  sign = (flags >> 7) & 0x1;
 }
 
 // POTENTIAL BUG -> zero flag set when A == 0 or new_val == 0 (??)
@@ -1029,6 +1142,14 @@ void CPU::shift_right(uint8_t* operand) {
   carry = *operand & 0x1;
   zero = (new_value == 0);
   sign = (new_value >= 0x80); // this is basically impossible i assume
+  *operand = new_value;
+}
+
+void CPU::arithmetic_shift_left(uint8_t* operand) {
+  uint8_t new_value = *operand << 1;
+  carry = (*operand >> 7) & 0x1;
+  zero = (new_value == 0);
+  sign = (new_value >= 0x80);
   *operand = new_value;
 }
 
@@ -1082,11 +1203,13 @@ uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
   return new_pc_address;
 }
 
+
+
 int main() {
   CPU nes;
   ifstream rom("read_test.nes", ios::binary | ios::ate);
   streamsize size = rom.tellg();
-  rom.seekg(0, std::ios::beg);
+  rom.seekg(0, ios::beg);
 
   char buffer[size];
   if (rom.read(buffer, size)) {
