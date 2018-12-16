@@ -28,16 +28,16 @@ def get_right_log(ind):
 
 
 
-with open("01-basics.20181126_112149.debug", "r") as f:
+with open("nestest.log", "r") as f:
     correct_log = f.readlines()
 
-with open("basics_run.txt", "r") as f:
+with open("my_nestest.log", "r") as f:
     my_log = f.readlines()
 
 
 
-for i in range(12, len(my_log)):
-    if get_my_log(i) != get_right_log(i):
+for i in range(0, len(my_log)):
+    if get_my_log(i)['pc'] != get_right_log(i)['pc']:
         print(i)
         print(get_my_log(i))
         print(get_right_log(i))

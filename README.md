@@ -8,7 +8,7 @@ An NES emulator written in C++. Currently in a state of progress, but hoping to 
 
 A to-do list, (roughly) in order of priority.
 
-- [ ] All 6502 CPU opcodes implemented
+- [x] All 6502 CPU opcodes implemented and working
 - [ ] PPU implementation
 - [ ] memory map with pointers instead of writing things manually to a memory array
 - [ ] memory mappers 0, 1, 2
@@ -17,8 +17,25 @@ A to-do list, (roughly) in order of priority.
 - [ ] APU support [stretch goal?]
 - [ ] save support
 
+
+
 ### Code clarity ideas
 The code's pretty messy, since I've been prioritizing quantity of quality (at the moment). Here are a few things that I think can make it better.
 - [ ] use upper / lower nibbles to determine instruction instead of a big switch
 - [ ] enums for addressing modes - especially since they're formulaic
 - [ ] wrapper functions for things like EOR, AND, ORA, etc. since the only difference is addressing modes
+- [ ] object organization -> master class for NES object, or should the CPU "hold" everything?
+
+
+
+## Current To-do
+
+Things to get to at some point in time
+- [ ] STA always increments cycle in favor of page turn - how to force this?
+- [ ] unofficial opcodes, starting at LAX
+
+
+## Resources
+
+[NES Development Guide](http://nesdev.com/NESDoc.pdf)
+[NESTest](http://www.qmtpro.com/~nes/misc/nestest.txt)

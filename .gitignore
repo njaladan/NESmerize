@@ -37,3 +37,5 @@
 # don't upload my tests thanks
 test.cpp
 taken.c
+*.debug
+nes/

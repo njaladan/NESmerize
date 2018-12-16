@@ -19,6 +19,9 @@ class CPU {
     // only holds lower byte of the real SP
     uint8_t SP;
 
+    // cycle count
+    uint8_t cycles;
+
     // CPU flags
     bool carry;
     bool zero;
@@ -26,7 +29,11 @@ class CPU {
     bool overflow;
     bool sign;
     bool decimal; // has no effect on NES 6502 bc no decimal mode included
-    // 2-bit B flag should be here, but I don't think it has an effect on the CPU
+    bool b_upper;
+    bool b_lower;
+
+    // interrupt handler
+    bool interrupt;
 
     // for debugging only
     bool valid;
@@ -63,8 +70,11 @@ class CPU {
     void shift_right(uint8_t*);
     void arithmetic_shift_left(uint8_t*);
     void add_with_carry(uint8_t);
+    void branch_on_bool(bool, int8_t);
 
     // addressing modes
+    uint8_t* zero_page(uint8_t);
+    uint8_t* memory_absolute(uint16_t);
     uint8_t* zero_page_indexed_X(uint8_t);
     uint8_t* zero_page_indexed_Y(uint8_t);
     uint8_t* absolute_indexed_X(uint16_t);
@@ -72,6 +82,22 @@ class CPU {
     uint8_t* indexed_indirect(uint8_t);
     uint8_t* indirect_indexed(uint8_t);
     uint16_t indirect(uint8_t, uint8_t);
+
+    // addressing mode enum
+    enum AddressingMode {
+      ZERO_PAGE_INDEXED_X,
+      ZERO_PAGE_INDEXED_Y,
+      ABSOLUTE_INDEXED_X,
+      ABSOLUTE_INDEXED_Y,
+      INDEXED_INDIRECT,
+      INDIRECT_INDEXED,
+      ACCUMULATOR,
+      IMMEDIATE,
+      ZERO_PAGE,
+      ABSOLUTE,
+      RELATIVE,
+      INDIRECT
+    };
 
 };
 
@@ -130,16 +156,19 @@ void CPU::execute_cycle() {
     case 0x20:
       address_stack_push(PC + 2); // push next address - 1 to stack
       PC = address;
+      cycles += 6;
       break;
 
     // RTS
     case 0x60:
       PC = address_stack_pop() + 1; // add one to stored address
+      cycles += 6;
       break;
 
     // NOP
     case 0xea:
-      PC += 2;
+      PC += 1;
+      cycles += 2;
       break;
 
     // CMP: i
@@ -150,7 +179,7 @@ void CPU::execute_cycle() {
 
     // CMP: zero page
     case 0xc5:
-      compare(accumulator, memory.get_item(arg1));
+      compare(accumulator, *(zero_page(arg1)));
       PC += 2;
       break;
 
@@ -162,7 +191,7 @@ void CPU::execute_cycle() {
 
     // CMP: absolute
     case 0xcd:
-      compare(accumulator, memory.get_item(address));
+      compare(accumulator, *(memory_absolute(address)));
       PC += 3;
       break;
 
@@ -198,13 +227,13 @@ void CPU::execute_cycle() {
 
     // CPX: zero page
     case 0xe4:
-      compare(X, memory.get_item(arg1));
+      compare(X, *(zero_page(arg1)));
       PC += 2;
       break;
 
     // CPX: absolute
     case 0xec:
-      compare(X, memory.get_item(address));
+      compare(X, *(memory_absolute(address)));
       PC += 3;
       break;
 
@@ -216,86 +245,54 @@ void CPU::execute_cycle() {
 
     // CPY: zero page
     case 0xc4:
-      compare(Y, memory.get_item(arg1));
+      compare(Y, *(zero_page(arg1)));
       PC += 2;
       break;
 
     // CPY: absolute
     case 0xcc:
-      compare(Y, memory.get_item(address));
+      compare(Y, *(memory_absolute(address)));
       PC += 3;
       break;
 
     // BPL
     case 0x10:
-      if (!sign) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(!sign, arg1);
       break;
 
     // BMI
     case 0x30:
-      if (sign) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(sign, arg1);
       break;
 
     // BVC
     case 0x50:
-      if (!overflow) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(!overflow, arg1);
       break;
 
     // BVS
     case 0x70:
-      if (overflow) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(overflow, arg1);
       break;
 
     // BCC
     case 0x90:
-      if (!carry) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(!carry, arg1);
       break;
 
     // BCS
     case 0xB0:
-      if (carry) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(carry, arg1);
       break;
 
     // BNE
     case 0xD0:
-      if (!zero) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(!zero, arg1);
       break;
 
     // BEQ
     case 0xF0:
-      if (zero) {
-        PC += ((int8_t) arg1) + 2;
-      } else {
-        PC += 2;
-      }
+      branch_on_bool(zero, arg1);
       break;
 
     // LDA immediate
@@ -307,7 +304,7 @@ void CPU::execute_cycle() {
 
     // LDA zero page
     case 0xa5:
-      accumulator = memory.get_item(arg1);
+      accumulator = *(zero_page(arg1));
       sign_zero_flags(accumulator);
       PC += 2;
       break;
@@ -321,7 +318,7 @@ void CPU::execute_cycle() {
 
     // LDA absolute
     case 0xad:
-      accumulator = memory.get_item(address);
+      accumulator = *(memory_absolute(address));
       sign_zero_flags(accumulator);
       PC += 3;
       break;
@@ -363,7 +360,7 @@ void CPU::execute_cycle() {
 
     // LDX zero page
     case 0xa6:
-      X = memory.get_item(arg1);
+      X = *(zero_page(arg1));
       sign_zero_flags(X);
       PC += 2;
       break;
@@ -377,7 +374,7 @@ void CPU::execute_cycle() {
 
     // LDX absolute
     case 0xae:
-      X = memory.get_item(address);
+      X = *(memory_absolute(address));
       sign_zero_flags(X);
       PC += 3;
       break;
@@ -398,7 +395,7 @@ void CPU::execute_cycle() {
 
     // LDY zero page
     case 0xa4:
-      Y = memory.get_item(arg1);
+      Y = *(zero_page(arg1));
       sign_zero_flags(Y);
       PC += 2;
       break;
@@ -412,7 +409,7 @@ void CPU::execute_cycle() {
 
     // LDY absolute
     case 0xac:
-      Y = memory.get_item(address);
+      Y = *(memory_absolute(address));
       sign_zero_flags(Y);
       PC += 3;
       break;
@@ -426,7 +423,7 @@ void CPU::execute_cycle() {
 
     // STA zero page
     case 0x85:
-      memory.set_item(arg1, accumulator);
+      *(zero_page(arg1)) = accumulator;
       PC += 2;
       break;
 
@@ -438,7 +435,7 @@ void CPU::execute_cycle() {
 
     // STA absolute
     case 0x8d:
-      memory.set_item(address, accumulator);
+      *(memory_absolute(address)) = accumulator;
       PC += 3;
       break;
 
@@ -468,7 +465,7 @@ void CPU::execute_cycle() {
 
     // STX zero page
     case 0x86:
-      memory.set_item(arg1, X);
+      *(zero_page(arg1)) = X;
       PC += 2;
       break;
 
@@ -480,13 +477,13 @@ void CPU::execute_cycle() {
 
     // STX absolute
     case 0x8E:
-      memory.set_item(address, X);
+      *(memory_absolute(address)) = X;
       PC += 3;
       break;
 
     // STY zero page
     case 0x84:
-      memory.set_item(arg1, Y);
+      *(zero_page(arg1)) = Y;
       PC += 2;
       break;
 
@@ -498,60 +495,69 @@ void CPU::execute_cycle() {
 
     // STY absolute
     case 0x8c:
-      memory.set_item(address, Y);
+      *(memory_absolute(address)) = Y;
       PC += 3;
       break;
 
     // JMP absolute
     case 0x4c:
       PC = address;
+      cycles += 3;
       break;
 
     // JMP indirect
     case 0x6c:
       PC = indirect(arg1, arg2);
+      cycles += 5;
       break;
 
     // CLC (clear carry)
     case 0x18:
       carry = false;
       PC += 1;
+      cycles += 2;
       break;
 
     // SEC (set carry)
     case 0x38:
       carry = true;
       PC += 1;
+      cycles += 2;
       break;
 
     // CLI (clear interrupt)
     case 0x58:
       interrupt_disable = false;
       PC += 1;
+      cycles += 2;
       break;
 
     // SEI (set interrupt)
     case 0x78:
       interrupt_disable = true;
       PC += 1;
+      cycles += 2;
       break;
 
     // CLV (clear overflow)
     case 0xb8:
       overflow = false;
       PC += 1;
+      cycles += 2;
       break;
 
     // CLD (clear decimal)
     case 0xd8:
       decimal = false;
       PC += 1;
+      cycles += 2;
       break;
 
     // SED (set decimal)
     case 0xf8:
       decimal = true;
       PC += 1;
+      cycles += 2;
       break;
 
     // BIT zero page
@@ -559,16 +565,16 @@ void CPU::execute_cycle() {
       zero = ((memory.get_item(arg1) & accumulator) == 0);
       overflow = (memory.get_item(arg1) >> 6) & 1;
       sign = memory.get_item(arg1) >= 0x80;
+      cycles += 3;
       PC += 2;
       break;
 
     // BIT absolute
     case 0x2c:
-      printf("%x", memory.get_item(address));
-      valid = false;
       zero = ((memory.get_item(address) & accumulator) == 0);
       overflow = (memory.get_item(address) >> 6) & 1;
       sign = memory.get_item(address) >= 0x80;
+      cycles += 4;
       PC += 3;
       break;
 
@@ -577,12 +583,14 @@ void CPU::execute_cycle() {
       accumulator = Y;
       sign_zero_flags(accumulator);
       PC += 1;
+      cycles += 2;
       break;
 
     // TXS
     case 0x9a:
       SP = X;
       PC += 1;
+      cycles += 2;
       break;
 
     // TXA
@@ -590,6 +598,7 @@ void CPU::execute_cycle() {
       accumulator = X;
       sign_zero_flags(accumulator);
       PC += 1;
+      cycles += 2;
       break;
 
     // TSX
@@ -597,6 +606,7 @@ void CPU::execute_cycle() {
       X = SP;
       sign_zero_flags(X);
       PC += 1;
+      cycles += 2;
       break;
 
     // TAY
@@ -604,6 +614,7 @@ void CPU::execute_cycle() {
       Y = accumulator;
       sign_zero_flags(Y);
       PC += 1;
+      cycles += 2;
       break;
 
     // TAX
@@ -611,6 +622,7 @@ void CPU::execute_cycle() {
       X = accumulator;
       sign_zero_flags(X);
       PC += 1;
+      cycles += 2;
       break;
 
     // ROR accumulator
@@ -621,7 +633,7 @@ void CPU::execute_cycle() {
 
     // ROR zero page
     case 0x66:
-      rotate_right(memory.get_pointer(arg1));
+      rotate_right(zero_page(arg1));
       PC += 2;
       break;
 
@@ -633,7 +645,7 @@ void CPU::execute_cycle() {
 
     // ROR absolute
     case 0x6e:
-      rotate_right(memory.get_pointer(address));
+      rotate_right(memory_absolute(address));
       PC += 3;
       break;
 
@@ -651,7 +663,7 @@ void CPU::execute_cycle() {
 
     // ROL zero page
     case 0x26:
-      rotate_left(memory.get_pointer(arg1));
+      rotate_left(zero_page(arg1));
       PC += 2;
       break;
 
@@ -663,7 +675,7 @@ void CPU::execute_cycle() {
 
     // ROL absolute
     case 0x2e:
-      rotate_left(memory.get_pointer(address));
+      rotate_left(memory_absolute(address));
       PC += 3;
       break;
 
@@ -681,7 +693,7 @@ void CPU::execute_cycle() {
 
     // LSR zero page
     case 0x46:
-      shift_right(memory.get_pointer(arg1));
+      shift_right(zero_page(arg1));
       PC += 2;
       break;
 
@@ -693,7 +705,7 @@ void CPU::execute_cycle() {
 
     // LSR absolute
     case 0x4e:
-      shift_right(memory.get_pointer(address));
+      shift_right(memory_absolute(address));
       PC += 3;
       break;
 
@@ -708,12 +720,14 @@ void CPU::execute_cycle() {
       accumulator = stack_pop();
       sign_zero_flags(accumulator);
       PC += 1;
+      cycles += 4;
       break;
 
     // PHA
     case 0x48:
       stack_push(accumulator);
       PC += 1;
+      cycles += 3;
       break;
 
     // INY
@@ -721,6 +735,7 @@ void CPU::execute_cycle() {
       Y += 1;
       sign_zero_flags(Y);
       PC += 1;
+      cycles += 2;
       break;
 
     // INX
@@ -728,6 +743,7 @@ void CPU::execute_cycle() {
       X += 1;
       sign_zero_flags(X);
       PC += 1;
+      cycles += 2;
       break;
 
     // INC zero page
@@ -736,6 +752,7 @@ void CPU::execute_cycle() {
       memory.set_item(arg1, temp);
       sign_zero_flags(temp);
       PC += 2;
+      cycles += 2;
       break;
 
     // INC zero page X
@@ -744,6 +761,7 @@ void CPU::execute_cycle() {
       *temp_pointer = *temp_pointer + 1;
       sign_zero_flags(*temp_pointer);
       PC += 2;
+      cycles += 2;
       break;
 
     // INC absolute
@@ -752,6 +770,7 @@ void CPU::execute_cycle() {
       memory.set_item(address, temp);
       sign_zero_flags(temp);
       PC += 3;
+      cycles += 2;
       break;
 
     // INC absolute X
@@ -760,6 +779,7 @@ void CPU::execute_cycle() {
       *temp_pointer = *temp_pointer + 1;
       sign_zero_flags(*temp_pointer);
       PC += 3;
+      cycles += 2;
       break;
 
     // EOR immediate
@@ -823,6 +843,7 @@ void CPU::execute_cycle() {
       Y = Y - 1;
       sign_zero_flags(Y);
       PC += 1;
+      cycles += 2;
       break;
 
     // DEX
@@ -830,6 +851,7 @@ void CPU::execute_cycle() {
       X = X - 1;
       sign_zero_flags(X);
       PC += 1;
+      cycles += 2;
       break;
 
     // DEC zero page
@@ -838,6 +860,7 @@ void CPU::execute_cycle() {
       memory.set_item(arg1, temp);
       sign_zero_flags(temp);
       PC += 2;
+      cycles += 2;
       break;
 
     // DEC zero page X
@@ -846,6 +869,7 @@ void CPU::execute_cycle() {
       *temp_pointer = *temp_pointer - 1;
       sign_zero_flags(*temp_pointer);
       PC += 2;
+      cycles += 2;
       break;
 
     // DEC absolute
@@ -854,6 +878,7 @@ void CPU::execute_cycle() {
       memory.set_item(address, temp);
       sign_zero_flags(temp);
       PC += 3;
+      cycles += 2;
       break;
 
     // DEC absolute X
@@ -862,6 +887,7 @@ void CPU::execute_cycle() {
       *temp_pointer = *temp_pointer - 1;
       sign_zero_flags(*temp_pointer);
       PC += 3;
+      cycles += 2;
       break;
 
     // AND immediate
@@ -1026,14 +1052,18 @@ void CPU::execute_cycle() {
 
     // PHP
     case 0x08:
+      b_lower = true;
       stack_push(get_flags_as_byte());
+      b_lower = false;
       PC += 1;
+      cycles += 3;
       break;
 
     // PLP
     case 0x28:
       set_flags_from_byte(stack_pop());
       PC += 1;
+      cycles += 4;
       break;
 
     // ASL accumulator
@@ -1117,6 +1147,151 @@ void CPU::execute_cycle() {
     // BRK
     case 0x00:
       PC += 2; // something online said this was 2 - includes a padding byte
+      break;
+
+    // RTI
+    case 0x40:
+      set_flags_from_byte(stack_pop());
+      PC = address_stack_pop(); // set PC from stack
+      break;
+
+    // NOP immediate
+    case 0x80:
+      PC += 2;
+      break;
+
+    // NOP zero page
+    case 0x04:
+      PC += 2;
+      break;
+
+    // NOP zero page
+    case 0x44:
+      PC += 2;
+      break;
+
+    // NOP zero page
+    case 0x64:
+      PC += 2;
+      break;
+
+    // NOP absolute
+    case 0x0c:
+      PC += 3;
+      break;
+
+    // NOP zero page X
+    case 0x14:
+      PC += 2;
+      break;
+
+    // NOP zero page X
+    case 0x34:
+      PC += 2;
+      break;
+
+    // NOP zero page X
+    case 0x54:
+      PC += 2;
+      break;
+
+    // NOP zero page X
+    case 0x74:
+      PC += 2;
+      break;
+
+    // NOP zero page X
+    case 0xd4:
+      PC += 2;
+      break;
+
+    // NOP zero page X
+    case 0xf4:
+      PC += 2;
+      break;
+
+    // NOP absolute indexed X
+    case 0x1c:
+      PC += 3;
+      break;
+
+    // NOP absolute indexed X
+    case 0x3c:
+      PC += 3;
+      break;
+
+    // NOP absolute indexed X
+    case 0x5c:
+      PC += 3;
+      break;
+
+    // NOP absolute indexed X
+    case 0x7c:
+      PC += 3;
+      break;
+
+    // NOP absolute indexed X
+    case 0xdc:
+      PC += 3;
+      break;
+
+    // NOP absolute indexed X
+    case 0xfc:
+      PC += 3;
+      break;
+
+    // NOP immediate
+    case 0x89:
+      PC += 2;
+      break;
+
+    // NOP immediate
+    case 0x82:
+      PC += 2;
+      break;
+
+    // NOP immediate
+    case 0xc2:
+      PC += 2;
+      break;
+
+    // NOP immediate
+    case 0xe2:
+      PC += 2;
+      break;
+
+    // NOP
+    case 0x1a:
+      PC += 1;
+      break;
+
+    // NOP
+    case 0x3a:
+      PC += 1;
+      break;
+
+    // NOP
+    case 0x5a:
+      PC += 1;
+      break;
+
+    // NOP
+    case 0x7a:
+      PC += 1;
+      break;
+
+    // NOP
+    case 0xda:
+      PC += 1;
+      break;
+
+    // NOP
+    case 0xfa:
+      PC += 1;
+      break;
+
+    
+
 
 
 
@@ -1138,7 +1313,7 @@ void CPU::run() {
 // is it proper practice to assume this modifies the accumulator?
 void CPU::add_with_carry(uint8_t operand) {
   uint8_t before = accumulator;
-  accumulator += operand;
+  accumulator += operand + carry;
   zero = (accumulator == 0);
   sign = (accumulator >= 0x80);
   // signed overflow (i don't know if this works rip)
@@ -1152,6 +1327,9 @@ uint8_t CPU::get_flags_as_byte() {
   uint8_t flags = 0;
   flags |= (sign << 7);
   flags |= (overflow << 6);
+  flags |= (b_upper << 5);
+  flags |= (b_lower << 4);
+  flags |= (decimal << 3);
   flags |= (interrupt_disable << 2);
   flags |= (zero << 1);
   flags |= carry;
@@ -1162,6 +1340,7 @@ void CPU::set_flags_from_byte(uint8_t flags) {
   carry = flags & 0x1;
   zero = (flags >> 1) & 0x1;
   interrupt_disable = (flags >> 2) & 0x1;
+  decimal = (flags >> 3) & 0x1;
   overflow = (flags >> 6) & 0x1;
   sign = (flags >> 7) & 0x1;
 }
@@ -1174,6 +1353,7 @@ void CPU::rotate_right(uint8_t* operand) {
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
   *operand = new_value;
+  cycles += 2; // ROR has extra 2 cycles
 }
 
 void CPU::rotate_left(uint8_t* operand) {
@@ -1182,6 +1362,7 @@ void CPU::rotate_left(uint8_t* operand) {
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
   *operand = new_value;
+  cycles += 2;
 }
 
 void CPU::shift_right(uint8_t* operand) {
@@ -1190,6 +1371,7 @@ void CPU::shift_right(uint8_t* operand) {
   zero = (new_value == 0);
   sign = (new_value >= 0x80); // this is basically impossible i assume
   *operand = new_value;
+  cycles += 2;
 }
 
 void CPU::arithmetic_shift_left(uint8_t* operand) {
@@ -1198,12 +1380,13 @@ void CPU::arithmetic_shift_left(uint8_t* operand) {
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
   *operand = new_value;
+  cycles += 2;
 }
 
 void CPU::compare(uint8_t operand, uint8_t argument) {
   carry = (operand >= argument);
   zero = (operand == argument);
-  sign = (operand >= 0x80); // negative two's complement
+  sign = ((uint8_t) (operand - argument)) >= 0x80; // two's cmplt cmp
 }
 
 void CPU::sign_zero_flags(uint8_t val) {
@@ -1211,39 +1394,82 @@ void CPU::sign_zero_flags(uint8_t val) {
   zero = (val == 0);
 }
 
+void CPU::branch_on_bool(bool arg, int8_t offset) {
+  if (arg) {
+    uint16_t original_pc_upper = (PC >> 4) & 0xf; // upper nibble
+    PC += ((int8_t) offset) + 2;
+    uint16_t new_pc_upper = (PC >> 4) & 0xf;
+    // extra cycle if crossed page boundary
+    if (original_pc_upper != new_pc_upper) {
+      cycles += 1;
+    }
+    cycles += 1;
+  } else {
+    PC += 2;
+  }
+  cycles += 2;
+}
+
 // ADDRESSING MODES POINTER
 
+uint8_t* CPU::zero_page(uint8_t arg) {
+  cycles += 3;
+  return memory.get_pointer(arg);
+}
+
+uint8_t* CPU::memory_absolute(uint16_t address) {
+  cycles += 4;
+  return memory.get_pointer(address);
+}
+
 uint8_t* CPU::zero_page_indexed_X(uint8_t arg) {
-  return memory.get_pointer((arg + X) & 0x100);
+  cycles += 4;
+  return memory.get_pointer((arg + X) & 0xff);
 }
 
 uint8_t* CPU::zero_page_indexed_Y(uint8_t arg) {
-  return memory.get_pointer((arg + Y) & 0x100);
+  cycles += 4;
+  return memory.get_pointer((arg + Y) & 0xff);
 }
 
 uint8_t* CPU::absolute_indexed_X(uint16_t arg) {
+  cycles += 4;
+  uint8_t summed_low_byte = arg + Y;
+  if (summed_low_byte < Y) {
+    cycles += 1; // page overflow CPU cycle
+  }
   return memory.get_pointer(arg + X);
 }
 
 uint8_t* CPU::absolute_indexed_Y(uint16_t arg) {
+  cycles += 4;
+  uint8_t summed_low_byte = arg + Y;
+  if (summed_low_byte < Y) {
+    cycles += 1; // page overflow CPU cycle
+  }
   return memory.get_pointer(arg + Y);
 }
 
 uint8_t* CPU::indexed_indirect(uint8_t arg) {
-  uint16_t low_byte = (uint16_t) memory.get_item((arg + X) & 0x100);
-  uint16_t high_byte = memory.get_item((arg + X + 1) & 0x100) << 8;
+  cycles += 6;
+  uint16_t low_byte = (uint16_t) memory.get_item((arg + X) & 0xff);
+  uint16_t high_byte = (uint16_t) memory.get_item((arg + X + 1) & 0xff) << 8;
   return memory.get_pointer(high_byte | low_byte);
 }
 
 uint8_t* CPU::indirect_indexed(uint8_t arg) {
-  uint16_t low_byte = (uint16_t) memory.get_item(arg);
-  uint16_t high_byte = (uint16_t) memory.get_item((arg + 1) & 0x100);
+  cycles += 5;
+  uint16_t low_byte = memory.get_item(arg);
+  uint16_t high_byte = (uint16_t) memory.get_item((arg + 1) & 0xff) << 8;
+  if (low_byte + Y < Y) {
+    cycles += 1; // page overflow CPU cycle
+  }
   return memory.get_pointer((high_byte | low_byte) + Y);
 }
 
 uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
-  uint16_t lower_byte_address = arg1 << 8 | arg2;
-  uint16_t upper_byte_address = arg1 << 8 | ((arg2 + 1) & 0xff); // because last byte overflow won't carry over
+  uint16_t lower_byte_address = arg2 << 8 | arg1;
+  uint16_t upper_byte_address = arg2 << 8 | ((arg1 + 1) & 0xff); // because last byte overflow won't carry over
   uint8_t lower_byte = memory.get_item(lower_byte_address);
   uint8_t upper_byte = memory.get_item(upper_byte_address);
   uint16_t new_pc_address = (upper_byte << 8) | lower_byte;
@@ -1267,13 +1493,19 @@ void CPU::load_program(char* program, int size) {
   }
   // need to cast to (uint16_t) ?
   PC = (memory.get_item(0xfffd) << 8) | memory.get_item(0xfffc);
-  SP = 0xff;
+  /* NESTEST OVERLOADED PC */
+
+  PC = 0xc000;
+
+  SP = 0xfd;
   valid = true;
+  interrupt_disable = true;
+  b_upper = true;
 }
 
 int main() {
   CPU nes;
-  ifstream rom("01-basics.nes", ios::binary | ios::ate);
+  ifstream rom("nestest.nes", ios::binary | ios::ate);
   streamsize size = rom.tellg();
   rom.seekg(0, ios::beg);
 
