@@ -36,7 +36,7 @@ with open("my_nestest.log", "r") as f:
 
 
 
-for i in range(0, len(my_log)):
+for i in range(0, len(correct_log)):
     if get_my_log(i)['pc'] != get_right_log(i)['pc']:
         print(i)
         print(get_my_log(i))

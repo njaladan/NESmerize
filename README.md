@@ -28,9 +28,9 @@ The code's pretty messy, since I've been prioritizing quantity of quality (at th
 
 
 
-## Current To-do
+### Current to-dos
 
-Things to get to at some point in time
+Smaller things to work on incrementally - more for me to not forget what I'm working on 
 - [ ] STA always increments cycle in favor of page turn - how to force this?
 - [ ] unofficial opcodes, starting at LAX
 
@@ -38,4 +38,5 @@ Things to get to at some point in time
 ## Resources
 
 [NES Development Guide](http://nesdev.com/NESDoc.pdf)
+
 [NESTest](http://www.qmtpro.com/~nes/misc/nestest.txt)

@@ -71,6 +71,11 @@ class CPU {
     void arithmetic_shift_left(uint8_t*);
     void add_with_carry(uint8_t);
     void branch_on_bool(bool, int8_t);
+    void increment_subtract(uint8_t*);
+    void arithmetic_shift_left_or(uint8_t*);
+    void rotate_left_and(uint8_t*);
+    void shift_right_xor(uint8_t*);
+    void rotate_right_add(uint8_t*);
 
     // addressing modes
     uint8_t* zero_page(uint8_t);
@@ -1290,7 +1295,347 @@ void CPU::execute_cycle() {
       PC += 1;
       break;
 
-    
+    // LAX zero page
+    case 0xa7:
+      accumulator = X = *(zero_page(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // LAX indexed indirect
+    case 0xa3:
+      accumulator = X = *(indexed_indirect(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // LAX immediate
+    case 0xab:
+      accumulator = X = arg1;
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // LAX absolute
+    case 0xaf:
+      accumulator = X = *(memory_absolute(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // LAX indirect indexed
+    case 0xb3:
+      accumulator = X = *(indirect_indexed(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // LAX zero page indexed Y
+    case 0xb7:
+      accumulator = X = *(zero_page_indexed_Y(arg1));
+      sign_zero_flags(accumulator);
+      PC += 2;
+      break;
+
+    // LAX absolute indexed Y
+    case 0xbf:
+      accumulator = X = *(absolute_indexed_Y(address));
+      sign_zero_flags(accumulator);
+      PC += 3;
+      break;
+
+    // SAX zero page
+    case 0x87:
+      *(zero_page(arg1)) = X & accumulator;
+      PC += 2;
+      break;
+
+    // SAX zero page Y
+    case 0x97:
+      *(zero_page_indexed_Y(arg1)) = X & accumulator;
+      PC += 2;
+      break;
+
+    // SAX indirect X
+    case 0x83:
+      *(indexed_indirect(arg1)) = X & accumulator;
+      PC += 2;
+      break;
+
+    // SAX absolute
+    case 0x8f:
+      *(memory_absolute(address)) = X & accumulator;
+      PC += 3;
+      break;
+
+    // SBC immediate [the undocumented one]
+    case 0xeb:
+      add_with_carry(~arg1);
+      PC += 2;
+      break;
+
+    // DCP zero page
+    case 0xc7:
+      *(zero_page(arg1)) -= 1;
+      sign_zero_flags((accumulator - *(zero_page(arg1))) & 0xff);
+      PC += 2;
+      break;
+
+    // DCP zero page X
+    case 0xd7:
+      *(zero_page_indexed_X(arg1)) -= 1;
+      sign_zero_flags((accumulator - *(zero_page_indexed_X(arg1))) & 0xff);
+      PC += 2;
+      break;
+
+    // DCP absolute
+    case 0xcf:
+      *(memory_absolute(address)) -= 1;
+      sign_zero_flags((accumulator - *(memory_absolute(address))) & 0xff);
+      PC += 3;
+      break;
+
+    // DCP absolute X
+    case 0xdf:
+      *(absolute_indexed_X(address)) -= 1;
+      sign_zero_flags((accumulator - *(absolute_indexed_X(address))) & 0xff);
+      PC += 3;
+      break;
+
+    // DCP absolute Y
+    case 0xdb:
+      *(absolute_indexed_Y(address)) -= 1;
+      sign_zero_flags((accumulator - *(absolute_indexed_Y(address))) & 0xff);
+      PC += 3;
+      break;
+
+    // DCP indirect X
+    case 0xc3:
+      *(indexed_indirect(arg1)) -= 1;
+      sign_zero_flags((accumulator - *(indexed_indirect(arg1))) & 0xff);
+      PC += 2;
+      break;
+
+    // DCP indrect Y
+    case 0xd3:
+      *(indirect_indexed(arg1)) -= 1;
+      sign_zero_flags((accumulator - *(indirect_indexed(arg1))) & 0xff);
+      PC += 2;
+      break;
+
+    // ISB zero page
+    case 0xe7:
+      increment_subtract(zero_page(arg1));
+      PC += 2;
+      break;
+
+    // ISB zero page X
+    case 0xf7:
+      increment_subtract(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // ISB absolute
+    case 0xef:
+      increment_subtract(memory_absolute(address));
+      PC += 3;
+      break;
+
+    // ISB absolte X
+    case 0xff:
+      increment_subtract(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // ISB absolute Y
+    case 0xfb:
+      increment_subtract(absolute_indexed_Y(address));
+      PC += 3;
+      break;
+
+    // ISB indirect X
+    case 0xe3:
+      increment_subtract(indexed_indirect(arg1));
+      PC += 2;
+      break;
+
+    // ISB indirect Y
+    case 0xf3:
+      increment_subtract(indirect_indexed(arg1));
+      PC += 2;
+      break;
+
+    // SLO zero page
+    case 0x07:
+      arithmetic_shift_left_or(zero_page(arg1));
+      PC += 2;
+      break;
+
+    // SLO zero page X
+    case 0x17:
+      arithmetic_shift_left_or(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // SLO absolute
+    case 0x0f:
+      arithmetic_shift_left_or(memory_absolute(address));
+      PC += 3;
+      break;
+
+    // SLO absolute X
+    case 0x1f:
+      arithmetic_shift_left_or(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // SLO absolute Y
+    case 0x1b:
+      arithmetic_shift_left_or(absolute_indexed_Y(address));
+      PC += 3;
+      break;
+
+    // SLO indexed indirect
+    case 0x03:
+      arithmetic_shift_left_or(indexed_indirect(arg1));
+      PC += 2;
+      break;
+
+    // SLO indirect indexed
+    case 0x13:
+      arithmetic_shift_left_or(indirect_indexed(arg1));
+      PC += 2;
+      break;
+
+    // RLA zero page
+    case 0x27:
+      rotate_left_and(zero_page(arg1));
+      PC += 2;
+      break;
+
+    // RLA zero page X
+    case 0x37:
+      rotate_left_and(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // RLA absolute
+    case 0x2f:
+      rotate_left_and(memory_absolute(address));
+      PC += 3;
+      break;
+
+    // RLA absolute X
+    case 0x3f:
+      rotate_left_and(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // RLA absolute Y
+    case 0x3b:
+      rotate_left_and(absolute_indexed_Y(address));
+      PC += 3;
+      break;
+
+    // RLA indexed indirect
+    case 0x23:
+      rotate_left_and(indexed_indirect(arg1));
+      PC += 2;
+      break;
+
+    // RLA indirect indexed
+    case 0x33:
+      rotate_left_and(indirect_indexed(arg1));
+      PC += 2;
+      break;
+
+    // SRE zero page
+    case 0x47:
+      shift_right_xor(zero_page(arg1));
+      PC += 2;
+      break;
+
+    // SRE zero paeg X
+    case 0x57:
+      shift_right_xor(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // SRE absolute
+    case 0x4f:
+      shift_right_xor(memory_absolute(address));
+      PC += 3;
+      break;
+
+    // SRE absolute X
+    case 0x5f:
+      shift_right_xor(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // SRE absolute Y
+    case 0x5b:
+      shift_right_xor(absolute_indexed_Y(address));
+      PC += 3;
+      break;
+
+    // SRE indexed indirect
+    case 0x43:
+      shift_right_xor(indexed_indirect(arg1));
+      PC += 2;
+      break;
+
+    // SRE indirect indexed
+    case 0x53:
+      shift_right_xor(indirect_indexed(arg1));
+      PC += 2;
+      break;
+
+    // RRA zero page
+    case 0x67:
+      rotate_right_add(zero_page(arg1));
+      PC += 2;
+      break;
+
+    // RRA zero page X
+    case 0x77:
+      rotate_right_add(zero_page_indexed_X(arg1));
+      PC += 2;
+      break;
+
+    // RRA absolute
+    case 0x6f:
+      rotate_right_add(memory_absolute(address));
+      PC += 3;
+      break;
+
+    // RRA absolute X
+    case 0x7f:
+      rotate_right_add(absolute_indexed_X(address));
+      PC += 3;
+      break;
+
+    // RRA absolute Y
+    case 0x7b:
+      rotate_right_add(absolute_indexed_Y(address));
+      PC += 3;
+      break;
+
+    // RRA indexed indirect
+    case 0x63:
+      rotate_right_add(indexed_indirect(arg1));
+      PC += 2;
+      break;
+
+    // RRA indirect indexed
+    case 0x73:
+      rotate_right_add(indirect_indexed(arg1));
+      PC += 2;
+      break;
+
+
+
+
 
 
 
@@ -1310,19 +1655,46 @@ void CPU::run() {
   }
 }
 
-// is it proper practice to assume this modifies the accumulator?
+void CPU::rotate_right_add(uint8_t* operand) {
+  rotate_right(operand);
+  add_with_carry(*operand);
+}
+
+void CPU::shift_right_xor(uint8_t* operand) {
+  shift_right(operand);
+  accumulator ^= *operand;
+  sign_zero_flags(accumulator);
+}
+
+void CPU::rotate_left_and(uint8_t* operand) {
+  rotate_left(operand);
+  accumulator &= *operand;
+  sign_zero_flags(accumulator);
+}
+
+void CPU::arithmetic_shift_left_or(uint8_t* operand) {
+  arithmetic_shift_left(operand);
+  accumulator |= *operand;
+  sign_zero_flags(accumulator);
+}
+
+void CPU::increment_subtract(uint8_t* operand) {
+  *operand += 1;
+  add_with_carry(~(*operand));
+}
+
 void CPU::add_with_carry(uint8_t operand) {
   uint8_t before = accumulator;
+  uint16_t sum = accumulator + operand + carry;
   accumulator += operand + carry;
   zero = (accumulator == 0);
   sign = (accumulator >= 0x80);
-  // signed overflow (i don't know if this works rip)
-  overflow = ((before ^ accumulator) & (operand ^ accumulator) & 0x80) >> 7;
+  // signed overflow
+  overflow = ~(operand ^ before) & (before ^ sum) & 0x80;
   // unsigned overflow
-  carry = (accumulator < before) && (accumulator < operand);
+  carry = sum > 0xff;
 }
 
-// no decimal, B flag since NES 6502 doesn't support
 uint8_t CPU::get_flags_as_byte() {
   uint8_t flags = 0;
   flags |= (sign << 7);
