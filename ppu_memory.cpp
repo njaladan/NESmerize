@@ -7,7 +7,8 @@
 using namespace std;
 
 class PPUMemory {
-  uint8_t pattern_tables[0x2000];
+public:
+  uint8_t* pattern_tables;
   uint8_t name_tables[0x1000];
   uint8_t palettes[0x20];
   uint8_t spr_ram[0x100];
@@ -15,6 +16,7 @@ class PPUMemory {
   // memory operations
   uint8_t* get_pointer(uint16_t);
   uint8_t* get_spr_pointer(uint8_t);
+  void set_pattern_tables(uint8_t*);
 };
 
 
@@ -32,4 +34,8 @@ uint8_t* PPUMemory::get_pointer(uint16_t addr) {
 
 uint8_t* PPUMemory::get_spr_pointer(uint8_t addr) {
   return spr_ram + addr;
+}
+
+void PPUMemory::set_pattern_tables(uint8_t* pt_pointer) {
+  pattern_tables = pt_pointer;
 }

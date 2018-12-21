@@ -1,15 +1,6 @@
-#include <stdio.h>
-#include <stdint.h>
-#include <iostream>
-#include <fstream>
 
-
-#include "memory.cpp"
-
-using namespace std;
 
 class CPU {
-  // TODO: move to private after debugging
   public:
     // CPU registers; reset should initialize to zero unless set
     uint8_t accumulator;
@@ -39,10 +30,10 @@ class CPU {
     bool valid;
 
     // "hardware" connections
-    Memory memory;
+    Memory* memory;
 
     // running stuff
-    void load_program(char*, int);
+    void reset_game();
     void execute_cycle();
     void run();
 
@@ -89,22 +80,12 @@ class CPU {
     uint16_t indirect(uint8_t, uint8_t);
 
     // addressing mode enum
-    enum AddressingMode {
-      ZERO_PAGE_INDEXED_X,
-      ZERO_PAGE_INDEXED_Y,
-      ABSOLUTE_INDEXED_X,
-      ABSOLUTE_INDEXED_Y,
-      INDEXED_INDIRECT,
-      INDIRECT_INDEXED,
-      ACCUMULATOR,
-      IMMEDIATE,
-      ZERO_PAGE,
-      ABSOLUTE,
-      RELATIVE,
-      INDIRECT
-    };
-
+    void set_memory(Memory*);
 };
+
+void CPU::set_memory(Memory* mem_pointer) {
+  memory = mem_pointer;
+}
 
 void CPU::address_stack_push(uint16_t addr) {
   uint8_t lower_byte = (uint8_t) addr; // does this cast work?
@@ -124,7 +105,7 @@ uint16_t CPU::address_stack_pop() {
 // TODO: make stack_offset a global variable or something?
 void CPU::stack_push(uint8_t value) {
   uint16_t stack_offset = 0x100;
-  memory.set_item(stack_offset + SP, value);
+  memory->set_item(stack_offset + SP, value);
   // simulate underflow
   SP -= 1;
 }
@@ -132,22 +113,28 @@ void CPU::stack_push(uint8_t value) {
 uint8_t CPU::stack_pop() {
   uint16_t stack_offset = 0x100;
   uint16_t stack_address = stack_offset + SP + 1;
-  uint8_t value = memory.get_item(stack_address);
+  uint8_t value = memory->get_item(stack_address);
   SP += 1;
   return value;
 }
 
 void CPU::print_register_values() {
-  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X\n", PC, accumulator, X, Y, get_flags_as_byte(), SP);
+  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X\n",
+          PC,
+          accumulator,
+          X,
+          Y,
+          get_flags_as_byte(),
+          SP);
 }
 
 // basically one giant switch case
 // how can i make this better?
 void CPU::execute_cycle() {
-  uint8_t opcode = memory.get_item(PC);
+  uint8_t opcode = memory->get_item(PC);
    // these may lead to errors if we're at the end of PRG
-  uint8_t arg1 = memory.get_item(PC + 1);
-  uint8_t arg2 = memory.get_item(PC + 2);
+  uint8_t arg1 = memory->get_item(PC + 1);
+  uint8_t arg2 = memory->get_item(PC + 2);
   uint16_t address = arg2 << 8 | arg1;
   print_register_values();
 
@@ -567,18 +554,18 @@ void CPU::execute_cycle() {
 
     // BIT zero page
     case 0x24:
-      zero = ((memory.get_item(arg1) & accumulator) == 0);
-      overflow = (memory.get_item(arg1) >> 6) & 1;
-      sign = memory.get_item(arg1) >= 0x80;
+      zero = ((memory->get_item(arg1) & accumulator) == 0);
+      overflow = (memory->get_item(arg1) >> 6) & 1;
+      sign = memory->get_item(arg1) >= 0x80;
       cycles += 3;
       PC += 2;
       break;
 
     // BIT absolute
     case 0x2c:
-      zero = ((memory.get_item(address) & accumulator) == 0);
-      overflow = (memory.get_item(address) >> 6) & 1;
-      sign = memory.get_item(address) >= 0x80;
+      zero = ((memory->get_item(address) & accumulator) == 0);
+      overflow = (memory->get_item(address) >> 6) & 1;
+      sign = memory->get_item(address) >= 0x80;
       cycles += 4;
       PC += 3;
       break;
@@ -753,8 +740,8 @@ void CPU::execute_cycle() {
 
     // INC zero page
     case 0xe6:
-      temp = memory.get_item(arg1) + 1;
-      memory.set_item(arg1, temp);
+      temp = memory->get_item(arg1) + 1;
+      memory->set_item(arg1, temp);
       sign_zero_flags(temp);
       PC += 2;
       cycles += 2;
@@ -771,8 +758,8 @@ void CPU::execute_cycle() {
 
     // INC absolute
     case 0xee:
-      temp = memory.get_item(address) + 1;
-      memory.set_item(address, temp);
+      temp = memory->get_item(address) + 1;
+      memory->set_item(address, temp);
       sign_zero_flags(temp);
       PC += 3;
       cycles += 2;
@@ -796,7 +783,7 @@ void CPU::execute_cycle() {
 
     // EOR zero page
     case 0x45:
-      accumulator ^= memory.get_item(arg1);
+      accumulator ^= memory->get_item(arg1);
       sign_zero_flags(accumulator);
       PC += 2;
       break;
@@ -810,7 +797,7 @@ void CPU::execute_cycle() {
 
     // EOR absolute
     case 0x4d:
-      accumulator ^= memory.get_item(address);
+      accumulator ^= memory->get_item(address);
       sign_zero_flags(accumulator);
       PC += 3;
       break;
@@ -861,8 +848,8 @@ void CPU::execute_cycle() {
 
     // DEC zero page
     case 0xc6:
-      temp = memory.get_item(arg1) - 1;
-      memory.set_item(arg1, temp);
+      temp = memory->get_item(arg1) - 1;
+      memory->set_item(arg1, temp);
       sign_zero_flags(temp);
       PC += 2;
       cycles += 2;
@@ -879,8 +866,8 @@ void CPU::execute_cycle() {
 
     // DEC absolute
     case 0xce:
-      temp = memory.get_item(address) - 1;
-      memory.set_item(address, temp);
+      temp = memory->get_item(address) - 1;
+      memory->set_item(address, temp);
       sign_zero_flags(temp);
       PC += 3;
       cycles += 2;
@@ -904,7 +891,7 @@ void CPU::execute_cycle() {
 
     // AND zero page
     case 0x25:
-      accumulator &= memory.get_item(arg1);
+      accumulator &= memory->get_item(arg1);
       sign_zero_flags(accumulator);
       PC += 2;
       break;
@@ -918,7 +905,7 @@ void CPU::execute_cycle() {
 
     // AND absolute
     case 0x2d:
-      accumulator &= memory.get_item(address);
+      accumulator &= memory->get_item(address);
       sign_zero_flags(accumulator);
       PC += 3;
       break;
@@ -960,7 +947,7 @@ void CPU::execute_cycle() {
 
     // ORA zero page
     case 0x05:
-      accumulator |= memory.get_item(arg1);
+      accumulator |= memory->get_item(arg1);
       sign_zero_flags(accumulator);
       PC += 2;
       break;
@@ -974,7 +961,7 @@ void CPU::execute_cycle() {
 
     // ORA absolute
     case 0x0d:
-      accumulator |= memory.get_item(address);
+      accumulator |= memory->get_item(address);
       sign_zero_flags(accumulator);
       PC += 3;
       break;
@@ -1015,7 +1002,7 @@ void CPU::execute_cycle() {
 
     // ADC zero page
     case 0x65:
-      add_with_carry(memory.get_item(arg1));
+      add_with_carry(memory->get_item(arg1));
       PC += 2;
       break;
 
@@ -1027,7 +1014,7 @@ void CPU::execute_cycle() {
 
     // ADC absolute
     case 0x6d:
-      add_with_carry(memory.get_item(address));
+      add_with_carry(memory->get_item(address));
       PC += 3;
       break;
 
@@ -1079,7 +1066,7 @@ void CPU::execute_cycle() {
 
     // ASL zero page
     case 0x06:
-      arithmetic_shift_left(memory.get_pointer(arg1));
+      arithmetic_shift_left(memory->get_pointer(arg1));
       PC += 2;
       break;
 
@@ -1091,7 +1078,7 @@ void CPU::execute_cycle() {
 
     // ASL absolute
     case 0x0e:
-      arithmetic_shift_left(memory.get_pointer(address));
+      arithmetic_shift_left(memory->get_pointer(address));
       PC += 3;
       break;
 
@@ -1109,7 +1096,7 @@ void CPU::execute_cycle() {
 
     // SBC zero page
     case 0xe5:
-      add_with_carry(~memory.get_item(arg1));
+      add_with_carry(~memory->get_item(arg1));
       PC += 2;
       break;
 
@@ -1121,7 +1108,7 @@ void CPU::execute_cycle() {
 
     // SBC absolute
     case 0xed:
-      add_with_carry(~memory.get_item(address));
+      add_with_carry(~memory->get_item(address));
       PC += 3;
       break;
 
@@ -1151,7 +1138,12 @@ void CPU::execute_cycle() {
 
     // BRK
     case 0x00:
-      PC += 2; // something online said this was 2 - includes a padding byte
+      address_stack_push(PC + 2);
+      b_lower = true;
+      stack_push(get_flags_as_byte());
+      b_lower = false;
+      interrupt_disable = true;
+      PC = memory->brk_vector();
       break;
 
     // RTI
@@ -1633,15 +1625,6 @@ void CPU::execute_cycle() {
       PC += 2;
       break;
 
-
-
-
-
-
-
-
-
-
     default:
       printf("this instruction is not here lmao: %x\n", opcode);
       valid = false;
@@ -1786,22 +1769,22 @@ void CPU::branch_on_bool(bool arg, int8_t offset) {
 
 uint8_t* CPU::zero_page(uint8_t arg) {
   cycles += 3;
-  return memory.get_pointer(arg);
+  return memory->get_pointer(arg);
 }
 
 uint8_t* CPU::memory_absolute(uint16_t address) {
   cycles += 4;
-  return memory.get_pointer(address);
+  return memory->get_pointer(address);
 }
 
 uint8_t* CPU::zero_page_indexed_X(uint8_t arg) {
   cycles += 4;
-  return memory.get_pointer((arg + X) & 0xff);
+  return memory->get_pointer((arg + X) & 0xff);
 }
 
 uint8_t* CPU::zero_page_indexed_Y(uint8_t arg) {
   cycles += 4;
-  return memory.get_pointer((arg + Y) & 0xff);
+  return memory->get_pointer((arg + Y) & 0xff);
 }
 
 uint8_t* CPU::absolute_indexed_X(uint16_t arg) {
@@ -1810,7 +1793,7 @@ uint8_t* CPU::absolute_indexed_X(uint16_t arg) {
   if (summed_low_byte < Y) {
     cycles += 1; // page overflow CPU cycle
   }
-  return memory.get_pointer(arg + X);
+  return memory->get_pointer(arg + X);
 }
 
 uint8_t* CPU::absolute_indexed_Y(uint16_t arg) {
@@ -1819,76 +1802,40 @@ uint8_t* CPU::absolute_indexed_Y(uint16_t arg) {
   if (summed_low_byte < Y) {
     cycles += 1; // page overflow CPU cycle
   }
-  return memory.get_pointer(arg + Y);
+  return memory->get_pointer(arg + Y);
 }
 
 uint8_t* CPU::indexed_indirect(uint8_t arg) {
   cycles += 6;
-  uint16_t low_byte = (uint16_t) memory.get_item((arg + X) & 0xff);
-  uint16_t high_byte = (uint16_t) memory.get_item((arg + X + 1) & 0xff) << 8;
-  return memory.get_pointer(high_byte | low_byte);
+  uint16_t low_byte = (uint16_t) memory->get_item((arg + X) & 0xff);
+  uint16_t high_byte = (uint16_t) memory->get_item((arg + X + 1) & 0xff) << 8;
+  return memory->get_pointer(high_byte | low_byte);
 }
 
 uint8_t* CPU::indirect_indexed(uint8_t arg) {
   cycles += 5;
-  uint16_t low_byte = memory.get_item(arg);
-  uint16_t high_byte = (uint16_t) memory.get_item((arg + 1) & 0xff) << 8;
+  uint16_t low_byte = memory->get_item(arg);
+  uint16_t high_byte = (uint16_t) memory->get_item((arg + 1) & 0xff) << 8;
   if (low_byte + Y < Y) {
     cycles += 1; // page overflow CPU cycle
   }
-  return memory.get_pointer((high_byte | low_byte) + Y);
+  return memory->get_pointer((high_byte | low_byte) + Y);
 }
 
 uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
   uint16_t lower_byte_address = arg2 << 8 | arg1;
-  uint16_t upper_byte_address = arg2 << 8 | ((arg1 + 1) & 0xff); // because last byte overflow won't carry over
-  uint8_t lower_byte = memory.get_item(lower_byte_address);
-  uint8_t upper_byte = memory.get_item(upper_byte_address);
+  uint16_t upper_byte_address = arg2 << 8 | ((arg1 + 1) & 0xff);
+  uint8_t lower_byte = memory->get_item(lower_byte_address);
+  uint8_t upper_byte = memory->get_item(upper_byte_address);
   uint16_t new_pc_address = (upper_byte << 8) | lower_byte;
   return new_pc_address;
 }
 
-
-// ideally loading would mean a pointer but I'll keep this for now, sigh
-// not correct b/c bank switching means needless IOs instead of a simple pointer swap LMAOO
-void CPU::load_program(char* program, int size) {
-  bool mirror = false;
-  if (size == 0x4000) {
-    mirror = true;
-  }
-  int program_offset = 0x8000;
-  for (int i = 0; i < size; i++) {
-    memory.set_item(program_offset + i, *(program + i));
-    if (mirror) {
-      memory.set_item(program_offset + 0x4000 + i, *(program + i));
-    }
-  }
-  // need to cast to (uint16_t) ?
-  PC = (memory.get_item(0xfffd) << 8) | memory.get_item(0xfffc);
-  /* NESTEST OVERLOADED PC */
-
-  PC = 0xc000;
-
+// TODO: only works with mapper 0
+void CPU::reset_game() {
+  PC = memory->reset_vector();
   SP = 0xfd;
   valid = true;
   interrupt_disable = true;
   b_upper = true;
-}
-
-int main() {
-  CPU nes;
-  ifstream rom("nestest.nes", ios::binary | ios::ate);
-  streamsize size = rom.tellg();
-  rom.seekg(0, ios::beg);
-
-  char buffer[size];
-  if (rom.read(buffer, size)) {
-    int prg_size = buffer[4] * 0x4000; // multiplier
-    // techncially doesn't count for possibility of trainer but that's ok bc those are rare at the moment
-    char* prg_data = buffer + 16;
-    nes.load_program(prg_data, prg_size);
-    nes.run();
-  }
-
-
 }

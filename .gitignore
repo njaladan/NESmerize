@@ -39,3 +39,4 @@ test.cpp
 taken.c
 *.debug
 nes/
+*.log

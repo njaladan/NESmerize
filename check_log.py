@@ -28,10 +28,10 @@ def get_right_log(ind):
 
 
 
-with open("nestest.log", "r") as f:
+with open("ndulator_dk.debug", "r") as f:
     correct_log = f.readlines()
 
-with open("my_nestest.log", "r") as f:
+with open("dk.log", "r") as f:
     my_log = f.readlines()
 
 

@@ -21,18 +21,19 @@ A to-do list, (roughly) in order of priority.
 
 ### Code clarity ideas
 The code's pretty messy, since I've been prioritizing quantity of quality (at the moment). Here are a few things that I think can make it better.
-- [ ] use upper / lower nibbles to determine instruction instead of a big switch
+- [ ] use upper / lower nibbles to determine instruction instead of a big switch? or a jump table (maybe virtual)
 - [ ] enums for addressing modes - especially since they're formulaic
 - [ ] wrapper functions for things like EOR, AND, ORA, etc. since the only difference is addressing modes
-- [ ] object organization -> master class for NES object, or should the CPU "hold" everything?
+- [x] object organization -> master class for NES object
 
 
 
 ### Current to-dos
 
-Smaller things to work on incrementally - more for me to not forget what I'm working on 
+Smaller things to work on incrementally - more for me to not forget what I'm working on
 - [ ] STA always increments cycle in favor of page turn - how to force this?
 - [ ] unofficial opcodes, starting at LAX
+- [ ] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
 
 
 ## Resources
