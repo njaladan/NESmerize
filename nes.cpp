@@ -11,7 +11,7 @@ using namespace std;
 #include "ppu.cpp"
 
 class NES {
-public:
+  public:
   CPU cpu;
   Memory memory;
   PPU ppu;
@@ -20,6 +20,7 @@ public:
   void create_system();
   void load_program(char*);
   void play_game(char*);
+  void run_game();
 };
 
 
@@ -42,6 +43,7 @@ void NES::load_program(char* filename) {
       cout << "not mapper 0! exiting...";
       return;
     }
+    // set PRG memory pointers
     char* program = (buffer + 0x10);
     memory.set_prg_nrom_top((uint8_t*) program);
     if (prg_size == 0x4000) {
@@ -49,6 +51,7 @@ void NES::load_program(char* filename) {
     } else {
       memory.set_prg_nrom_bottom((uint8_t*) program + 0x4000);
     }
+    // set PPU CHR memory pointers
     int chr_size = buffer[5] * 8192;
     uint8_t* chr_data = (uint8_t*) program + prg_size;
     if (chr_size > 0) {
@@ -59,9 +62,19 @@ void NES::load_program(char* filename) {
   }
 }
 
+// alternative is to run CPU until PPU latch is
+// 'filled' and then step PPU to that point
+void NES::run_game() {
+  while(cpu.valid) {
+    cpu.execute_cycle();
+    ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
+  }
+}
+
 void NES::play_game(char* filename) {
   create_system();
   load_program(filename);
+  run_game();
 }
 
 int main(int argc, char *argv[]) {

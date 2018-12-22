@@ -9,7 +9,8 @@ def get_my_log(ind):
     y = log_line[20:22]
     p = log_line[25:27]
     sp = log_line[31:33]
-    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp}
+    cyc = log_line[38:]
+    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp, 'cyc': int(cyc)}
 
 
 
@@ -20,24 +21,23 @@ def get_right_log(ind):
     x = log_line[55:57]
     y = log_line[60:62]
     p = log_line[65:67]
-    # mask out the B flag, leave in same format
-    p = str(hex(int(p, 16) & 0b11001111))[2:].zfill(2)
     sp = log_line[71:73]
-    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp}
+    cyc = log_line[78:]
+    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp, 'cyc': int(cyc)}
 
 
 
 
-with open("ndulator_dk.debug", "r") as f:
+with open("nestest.log", "r") as f:
     correct_log = f.readlines()
 
-with open("dk.log", "r") as f:
+with open("my_nestest.log", "r") as f:
     my_log = f.readlines()
 
 
 
 for i in range(0, len(correct_log)):
-    if get_my_log(i)['pc'] != get_right_log(i)['pc']:
+    if get_my_log(i)['cyc'] != get_right_log(i)['cyc']:
         print(i)
         print(get_my_log(i))
         print(get_right_log(i))

@@ -5,6 +5,8 @@ public:
   CPU* cpu;
   PPUMemory* ppu_memory;
 
+  uint64_t local_clock;
+
   // $2000
   bool x_scroll_offset;
   bool y_scroll_offset;
@@ -53,6 +55,7 @@ public:
 
   void set_memory(Memory*);
   void set_ppu_memory(PPUMemory*);
+  void step_to(uint64_t);
 
 
 };
@@ -63,4 +66,8 @@ void PPU::set_memory(Memory* mem_pointer) {
 
 void PPU::set_ppu_memory(PPUMemory* mem_pointer) {
   ppu_memory = mem_pointer;
+}
+
+void PPU::step_to(uint64_t cycle) {
+
 }
