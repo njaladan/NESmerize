@@ -1,7 +1,6 @@
 # nes-emu
 
-An NES emulator written in C++. Currently in a state of progress, but hoping to finish this up before 2018 ends.
-
+An NES emulator written in C++.
 
 
 ## To-do
@@ -10,11 +9,11 @@ A to-do list, (roughly) in order of priority.
 
 - [x] All 6502 CPU opcodes implemented and working
 - [ ] PPU implementation
-- [ ] memory map with pointers instead of writing things manually to a memory array
-- [ ] memory mappers 0, 1, 2
+- [x] ines memory mapper 0
 - [ ] SDL gui
 - [ ] PPU scrolling
 - [ ] APU support [stretch goal?]
+- [ ] memory mappers 1, 2
 - [ ] save support
 
 
@@ -31,9 +30,9 @@ The code's pretty messy, since I've been prioritizing quantity of quality (at th
 ### Current to-dos
 
 Smaller things to work on incrementally - more for me to not forget what I'm working on
-- [ ] STA always increments cycle in favor of page turn - how to force this?
-- [ ] unofficial opcodes, starting at LAX
-- [ ] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
+- [x] STA always increments cycle in favor of page turn - how to force this?
+- [x] unofficial opcodes, starting at LAX
+- [x] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
 
 
 ## Resources
