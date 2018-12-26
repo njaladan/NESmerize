@@ -1,6 +1,19 @@
 class CPU {
   public:
-    // CPU registers; reset should initialize to zero unless set
+    void set_memory(Memory*);
+    uint64_t local_clock;
+
+    // handle state
+    void reset_game();
+    void execute_cycle();
+
+    // for debugging only
+    bool valid;
+
+    // external devices can interrupt
+    Interrupt interrupt_type;
+
+  private:
     uint8_t accumulator;
     uint8_t X;
     uint8_t Y;
@@ -9,7 +22,6 @@ class CPU {
     uint8_t SP;
 
     // cycle count
-    uint64_t local_clock;
 
     // CPU flags
     bool carry;
@@ -17,39 +29,25 @@ class CPU {
     bool interrupt_disable;
     bool overflow;
     bool sign;
-    bool decimal; // has no effect on NES 6502 bc no decimal mode included
+    bool decimal;
     bool b_upper;
     bool b_lower;
 
-    // interrupt handler
-    bool interrupt;
-
-    // for debugging only
-    bool valid;
-
     // "hardware" connections
     Memory* memory;
-
-    // running stuff
-    void reset_game();
-    void execute_cycle();
-    void run();
 
     // flag operations
     uint8_t get_flags_as_byte();
     void set_flags_from_byte(uint8_t);
 
-
     // memory functions
     void stack_push(uint8_t);
     uint8_t stack_pop();
-
     void address_stack_push(uint16_t);
     uint16_t address_stack_pop();
 
     // debugging
     void print_register_values();
-
 
     // opcode implementation
     void compare(uint8_t, uint8_t*);
@@ -89,9 +87,6 @@ class CPU {
     uint8_t* indexed_indirect(uint8_t);
     uint8_t* indirect_indexed(uint8_t, bool);
     uint16_t indirect(uint8_t, uint8_t);
-
-    // addressing mode enum
-    void set_memory(Memory*);
 };
 
 void CPU::set_memory(Memory* mem_pointer) {
@@ -117,7 +112,6 @@ uint16_t CPU::address_stack_pop() {
 void CPU::stack_push(uint8_t value) {
   uint16_t stack_offset = 0x100;
   memory->set_item(stack_offset + SP, value);
-  // simulate underflow
   SP -= 1;
 }
 
@@ -130,7 +124,7 @@ uint8_t CPU::stack_pop() {
 }
 
 void CPU::print_register_values() {
-  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%d\n",
+  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu\n",
           PC,
           accumulator,
           X,
@@ -140,7 +134,25 @@ void CPU::print_register_values() {
           (local_clock * 3) % 341);
 }
 
+// TODO: set B flag correctly
+// TODO: check if interrupt reset works correctly
+void CPU::check_interrupt() {
+  if (interrupt_type && (interrupt_type == NMI || interrupt_disable == false)) {
+    address_stack_push(PC);
+    stack_push(get_flags_as_byte());
+    interrupt_disable = true;
+    if (interrupt_type == NMI) {
+      PC = memory->nmi_vector();
+    } else {
+      PC = memory-> irq_vector()
+    }
+    local_clock += 7;
+    interrupt_type = NONE;
+  }
+}
+
 void CPU::execute_cycle() {
+  check_interrupt();
   uint8_t opcode = memory->get_item(PC);
   uint8_t arg1 = memory->get_item(PC + 1);
   uint8_t arg2 = memory->get_item(PC + 2);
@@ -460,7 +472,7 @@ void CPU::execute_cycle() {
     // RTI
     case 0x40:
       set_flags_from_byte(stack_pop());
-      PC = address_stack_pop(); // set PC from stack
+      PC = address_stack_pop();
       local_clock += 6;
       break;
 
@@ -1354,14 +1366,6 @@ void CPU::execute_cycle() {
   }
 }
 
-void CPU::run() {
-  while(valid) {
-    execute_cycle();
-    if (PC < 0x10) {
-      return;
-    }
-  }
-}
 
 void CPU::boolean_xor(uint8_t* operand) {
   accumulator ^= *operand;
@@ -1517,7 +1521,7 @@ void CPU::shift_right(uint8_t* operand) {
   uint8_t new_value = *operand >> 1;
   carry = *operand & 0x1;
   zero = (new_value == 0);
-  sign = (new_value >= 0x80); // this is basically impossible i assume
+  sign = (new_value >= 0x80); // this isq basically impossible i assume
   *operand = new_value;
   local_clock += 2;
 }
@@ -1644,6 +1648,7 @@ uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
 
 // TODO: only works with mapper 0!
 void CPU::reset_game() {
+  accumulator = X = Y = 0;
   PC = memory->reset_vector();
   SP = 0xfd;
   valid = true;

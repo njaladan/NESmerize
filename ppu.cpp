@@ -7,6 +7,8 @@ public:
 
   uint64_t local_clock;
 
+  uint16_t scanline;
+
   // $2000
   bool x_scroll_offset;
   bool y_scroll_offset;
@@ -56,8 +58,6 @@ public:
   void set_memory(Memory*);
   void set_ppu_memory(PPUMemory*);
   void step_to(uint64_t);
-
-
 };
 
 void PPU::set_memory(Memory* mem_pointer) {

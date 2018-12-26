@@ -5,6 +5,8 @@
 
 using namespace std;
 
+enum Interrupt {NONE, BRK, IRQ, NMI};
+
 #include "memory.cpp"
 #include "cpu.cpp"
 #include "ppu_memory.cpp"
@@ -28,6 +30,8 @@ void NES::create_system() {
   cpu.set_memory(&memory);
   ppu.set_memory(&memory);
   ppu.set_ppu_memory(&ppu_memory);
+  memory.set_cpu(&cpu);
+  memory.set_ppu_memory(&ppu_memory);
 }
 
 void NES::load_program(char* filename) {
@@ -58,7 +62,6 @@ void NES::load_program(char* filename) {
       ppu_memory.set_pattern_tables(chr_data);
     }
     cpu.reset_game();
-    cpu.run();
   }
 }
 

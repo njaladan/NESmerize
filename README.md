@@ -9,7 +9,7 @@ A to-do list, (roughly) in order of priority.
 
 - [x] All 6502 CPU opcodes implemented and working
 - [ ] PPU implementation
-- [x] ines memory mapper 0
+- [x] ines memory mapper 0 [NROM]
 - [ ] SDL gui
 - [ ] PPU scrolling
 - [ ] APU support [stretch goal?]
@@ -20,9 +20,8 @@ A to-do list, (roughly) in order of priority.
 
 ### Code clarity ideas
 The code's pretty messy, since I've been prioritizing quantity of quality (at the moment). Here are a few things that I think can make it better.
-- [ ] use upper / lower nibbles to determine instruction instead of a big switch? or a jump table (maybe virtual)
 - [ ] enums for addressing modes - especially since they're formulaic
-- [ ] wrapper functions for things like EOR, AND, ORA, etc. since the only difference is addressing modes
+- [x] wrapper functions for things like EOR, AND, ORA, etc. since the only difference is addressing modes
 - [x] object organization -> master class for NES object
 
 
