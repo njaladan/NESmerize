@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <iostream>
 #include <fstream>
+#include <chrono>
 
 using namespace std;
 
@@ -11,6 +12,8 @@ enum Interrupt {NONE, BRK, IRQ, NMI};
 #include "cpu.cpp"
 #include "ppu_memory.cpp"
 #include "ppu.cpp"
+
+using namespace std::chrono;
 
 class NES {
   public:
@@ -61,17 +64,22 @@ void NES::load_program(char* filename) {
     if (chr_size > 0) {
       ppu_memory.set_pattern_tables(chr_data);
     }
-    cpu.reset_game();
+    cpu.initialize();
   }
 }
 
 // alternative is to run CPU until PPU latch is
 // 'filled' and then step PPU to that point
 void NES::run_game() {
+  high_resolution_clock::time_point t1 = high_resolution_clock::now();
   while(cpu.valid) {
-    cpu.execute_cycle();
-    ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
+    cpu.execute_instruction();
+    // ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
   }
+  high_resolution_clock::time_point t2 = high_resolution_clock::now();
+  auto d = duration_cast<microseconds>(t2 - t1).count();
+  cout << d;
+
 }
 
 void NES::play_game(char* filename) {

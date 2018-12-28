@@ -81,13 +81,13 @@ void Memory::write(uint16_t ind, uint8_t val) {
 }
 
 uint16_t Memory::reset_vector() {
-  return (get_item(0xfffd) << 8) | get_item(0xfffc);
+  return (read(0xfffd) << 8) | read(0xfffc);
 }
 
 uint16_t Memory::nmi_vector() {
-  return (get_item(0xfffb) << 8) | get_item(0xfffa);
+  return (read(0xfffb) << 8) | read(0xfffa);
 }
 
 uint16_t Memory::irq_vector() {
-  return (get_item(0xffff) << 8) | get_item(0xfffe);
+  return (read(0xffff) << 8) | read(0xfffe);
 }

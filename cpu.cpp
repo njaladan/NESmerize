@@ -1,11 +1,40 @@
+enum AddressingMode {
+  IMPLIED,
+  IMMEDIATE,
+  ZERO_PAGE,
+  ZERO_PAGE_X,
+  ZERO_PAGE_Y,
+  ABSOLUTE,
+  ABSOLUTE_X,
+  ABSOLUTE_Y,
+  INDIRECT,
+  INDIRECT_X,
+  INDIRECT_Y,
+  RELATIVE,
+  ACCUMULATOR
+};
+
+uint8_t BYTES_PER_MODE[] = {
+  1, 2, 2, 2, 2, 3, 3,
+  3, 2, 2, 2, 2, 1
+};
+
+uint8_t CYCLES_PER_MODE[] = {
+  2, 2, 3, 4, 4, 4, 4,
+  4, 5, 6, 5, 2, 2
+};
+
+uint16_t STACK_OFFSET = 0x100;
+
+
 class CPU {
   public:
     void set_memory(Memory*);
     uint64_t local_clock;
 
     // handle state
-    void reset_game();
-    void execute_cycle();
+    void initialize();
+    void execute_instruction();
 
     // for debugging only
     bool valid;
@@ -21,8 +50,6 @@ class CPU {
     // only holds lower byte of the real SP
     uint8_t SP;
 
-    // cycle count
-
     // CPU flags
     bool carry;
     bool zero;
@@ -35,6 +62,12 @@ class CPU {
 
     // "hardware" connections
     Memory* memory;
+
+    // keep state during execution
+    AddressingMode current_addressing_mode;
+    bool extra_cycle_taken;
+    bool override_pc_increment;
+    bool override_cycle_increment;
 
     // flag operations
     uint8_t get_flags_as_byte();
@@ -50,43 +83,51 @@ class CPU {
     void print_register_values();
 
     // opcode implementation
-    void compare(uint8_t, uint8_t*);
+    void compare(uint8_t);
     void sign_zero_flags(uint8_t);
-    void rotate_left(uint8_t*);
-    void rotate_right(uint8_t*);
-    void shift_right(uint8_t*);
-    void arithmetic_shift_left(uint8_t*);
-    void add_with_carry(uint8_t);
-    void branch_on_bool(bool, int8_t);
-    void increment_subtract(uint8_t*);
-    void arithmetic_shift_left_or(uint8_t*);
-    void rotate_left_and(uint8_t*);
-    void shift_right_xor(uint8_t*);
-    void rotate_right_add(uint8_t*);
-    void decrement_compare(uint8_t*);
-    void load_accumulator_x(uint8_t*);
-    void store_register(uint8_t*, uint8_t*);
-    void load_register(uint8_t*, uint8_t*);
-    void set_flag(bool*, bool);
-    void bit(uint8_t*);
-    void transfer_register(uint8_t*, uint8_t, bool);
-    void decrement(uint8_t*);
-    void increment(uint8_t*);
-    void boolean_or(uint8_t*);
-    void boolean_and(uint8_t*);
-    void boolean_xor(uint8_t*);
+    void rotate_left();
+    void rotate_right();
+    void shift_right();
+    void arithmetic_shift_left();
+    void add_with_carry();
+    void subtract_with_carry();
+    void add_with_carry_helper(uint8_t);
+    void branch_on_bool(bool);
+    void increment_subtract();
+    void arithmetic_shift_left_or();
+    void rotate_left_and();
+    void shift_right_xor();
+    void rotate_right_add();
+    void decrement_compare();
+    void load_accumulator_x();
+    void bit();
+    void decrement();
+    void increment();
+    void boolean_or();
+    void boolean_and();
+    void boolean_xor();
+    void store_x_and_accumulator();
+    void store_x();
+    void load_x();
 
     // addressing modes
-    uint8_t* immediate(uint8_t*);
-    uint8_t* zero_page(uint8_t);
-    uint8_t* memory_absolute(uint16_t);
-    uint8_t* zero_page_indexed_X(uint8_t);
-    uint8_t* zero_page_indexed_Y(uint8_t);
-    uint8_t* absolute_indexed_X(uint16_t, bool);
-    uint8_t* absolute_indexed_Y(uint16_t, bool);
-    uint8_t* indexed_indirect(uint8_t);
-    uint8_t* indirect_indexed(uint8_t, bool);
+    uint16_t absolute_indexed_X(uint16_t);
+    uint16_t absolute_indexed_Y(uint16_t);
+    uint16_t indexed_indirect(uint8_t);
+    uint16_t indirect_indexed(uint8_t);
     uint16_t indirect(uint8_t, uint8_t);
+
+    // memory access syntactic sugar
+    uint16_t get_operand();
+    uint16_t get_memory_index();
+    void store(uint8_t);
+
+    // other
+    void check_interrupt();
+    void set_addressing_mode();
+    void increment_pc_cycles();
+    void run_instruction();
+
 };
 
 void CPU::set_memory(Memory* mem_pointer) {
@@ -100,7 +141,6 @@ void CPU::address_stack_push(uint16_t addr) {
   stack_push(lower_byte);
 }
 
-// check if little / big endian makes a difference?
 uint16_t CPU::address_stack_pop() {
   uint8_t lower_byte = stack_pop();
   uint16_t upper_byte = (uint16_t) stack_pop();
@@ -110,15 +150,12 @@ uint16_t CPU::address_stack_pop() {
 
 // TODO: make stack_offset a global variable or something?
 void CPU::stack_push(uint8_t value) {
-  uint16_t stack_offset = 0x100;
-  memory->set_item(stack_offset + SP, value);
+  memory->write(STACK_OFFSET + SP, value);
   SP -= 1;
 }
 
 uint8_t CPU::stack_pop() {
-  uint16_t stack_offset = 0x100;
-  uint16_t stack_address = stack_offset + SP + 1;
-  uint8_t value = memory->get_item(stack_address);
+  uint8_t value = memory->read(STACK_OFFSET + SP + 1);
   SP += 1;
   return value;
 }
@@ -137,28 +174,425 @@ void CPU::print_register_values() {
 // TODO: set B flag correctly
 // TODO: check if interrupt reset works correctly
 void CPU::check_interrupt() {
-  if (interrupt_type && (interrupt_type == NMI || interrupt_disable == false)) {
+  if (interrupt_type &&
+    (interrupt_type == NMI || interrupt_disable == false)) {
     address_stack_push(PC);
     stack_push(get_flags_as_byte());
     interrupt_disable = true;
     if (interrupt_type == NMI) {
       PC = memory->nmi_vector();
     } else {
-      PC = memory-> irq_vector()
+      PC = memory-> irq_vector();
     }
     local_clock += 7;
     interrupt_type = NONE;
   }
 }
 
-void CPU::execute_cycle() {
-  check_interrupt();
-  uint8_t opcode = memory->get_item(PC);
-  uint8_t arg1 = memory->get_item(PC + 1);
-  uint8_t arg2 = memory->get_item(PC + 2);
-  uint16_t address = arg2 << 8 | arg1;
-  print_register_values();
+void CPU::set_addressing_mode() {
+  uint8_t opcode = memory->read(PC);
+  uint8_t address_mask = opcode & 0x1f;
+  uint8_t upper_mask = opcode & 0xe0;
+  switch(address_mask) {
 
+    case 0x0:
+      current_addressing_mode = IMMEDIATE;
+      break;
+
+    case 0x1:
+      current_addressing_mode = INDIRECT_X;
+      break;
+
+    case 0x2:
+      current_addressing_mode = IMMEDIATE;
+      break;
+
+    case 0x3:
+      current_addressing_mode = INDIRECT_X;
+      break;
+
+    case 0x4 ... 0x7:
+      current_addressing_mode = ZERO_PAGE;
+      break;
+
+    case 0x8:
+      current_addressing_mode = IMPLIED;
+      break;
+
+    case 0x9:
+      current_addressing_mode = IMMEDIATE;
+      break;
+
+    case 0xa:
+      current_addressing_mode = ACCUMULATOR;
+      break;
+
+    case 0xb:
+      current_addressing_mode = IMMEDIATE;
+      break;
+
+  	case 0xc ... 0xf:
+      current_addressing_mode = ABSOLUTE;
+      break;
+
+  	case 0x10:
+      current_addressing_mode = RELATIVE;
+      break;
+
+  	case 0x11 ... 0x13:
+      current_addressing_mode = INDIRECT_Y;
+      break;
+
+  	case 0x14 ... 0x17:
+      current_addressing_mode = ZERO_PAGE_X;
+      break;
+
+    case 0x18:
+      current_addressing_mode = IMPLIED;
+      break;
+
+  	case 0x19:
+      current_addressing_mode = ABSOLUTE_Y;
+      break;
+
+    case 0x1a:
+      current_addressing_mode = IMPLIED;
+      break;
+
+    case 0x1b:
+      current_addressing_mode = ABSOLUTE_Y;
+      break;
+
+  	case 0x1c ... 0x1f:
+      current_addressing_mode = ABSOLUTE_X;
+      break;
+  }
+
+  // exceptions
+  if (opcode == 0x20) {
+    current_addressing_mode = ABSOLUTE;
+  } else if (opcode == 0x6c) {
+    current_addressing_mode = INDIRECT;
+  } else if (
+    upper_mask >= 0x80 &&
+    upper_mask <= 0xa0 &&
+    address_mask >= 0x16 &&
+    address_mask <= 0x17
+  ) {
+    current_addressing_mode = ZERO_PAGE_Y;
+  } else if (
+    upper_mask >= 0x80 &&
+    upper_mask <= 0xa0 &&
+    address_mask >= 0x1e &&
+    address_mask <= 0x1f
+  ) {
+    current_addressing_mode = ABSOLUTE_Y;
+  }
+}
+
+void CPU::execute_instruction() {
+  override_pc_increment = false;
+  override_cycle_increment = false;
+  extra_cycle_taken = false;
+  check_interrupt();
+  set_addressing_mode();
+  // print_register_values();
+  run_instruction();
+  increment_pc_cycles();
+}
+
+void CPU::increment_pc_cycles() {
+  if (!override_pc_increment) {
+    PC += BYTES_PER_MODE[current_addressing_mode];
+  }
+  if (!override_cycle_increment) {
+    local_clock += CYCLES_PER_MODE[current_addressing_mode];
+    local_clock += extra_cycle_taken;
+  }
+}
+
+void CPU::run_instruction() {
+  uint8_t opcode = memory->read(PC);
+  uint8_t arg1 = memory->read(PC + 1);
+  uint8_t arg2 = memory->read(PC + 2);
+  uint16_t address = arg2 << 8 | arg1;
+
+  uint8_t opcode_block = opcode & 0x3;
+  uint8_t address_mask = opcode & 0x1f;
+  uint8_t upper_mask = opcode & 0xe0;
+
+  // branches
+  if (address_mask == 0x10) {
+    bool flags[] = {!sign, sign, !overflow, overflow,
+                    !carry, carry, !zero, zero};
+    branch_on_bool(flags[opcode >> 5]);
+    return;
+  }
+
+  // STP - stop execution
+  if (address_mask == 0x12) {
+    valid = false;
+    return;
+  }
+
+  if (address_mask == 0x18) {
+
+    // TYA
+    if (upper_mask == 0x80) {
+      accumulator = Y;
+      sign_zero_flags(accumulator);
+      return;
+    }
+
+    // set / clear flags
+    bool* register_pointer[] = {
+      &carry,
+      &interrupt_disable,
+      &overflow,
+      &decimal
+    };
+    uint8_t register_select = opcode >> 6;
+    uint8_t value_select = (opcode >> 5) & 0x1;
+    // CLV is special
+    if (register_select == 2) {
+      *(register_pointer[register_select]) = 0;
+    } else {
+      *(register_pointer[register_select]) = value_select;
+    }
+    return;
+  }
+
+  if (address_mask == 0x08) {
+    switch(upper_mask) {
+
+      // PHP
+      case 0x00:
+        local_clock += 1;
+        return stack_push(get_flags_as_byte());
+
+      // PLP
+      case 0x20:
+        local_clock += 2;
+        return set_flags_from_byte(stack_pop());
+
+      // PHA
+      case 0x40:
+        local_clock += 1;
+        return stack_push(accumulator);
+
+      // PLA
+      case 0x60:
+        local_clock += 2;
+        accumulator = stack_pop();
+        return sign_zero_flags(accumulator);
+
+      // DEY
+      case 0x80:
+        Y = Y - 1;
+        sign_zero_flags(Y);
+        return;
+
+      // TAY
+      case 0xa0:
+        Y = accumulator;
+        sign_zero_flags(Y);
+        return;
+
+      // INY
+      case 0xc0:
+        Y += 1;
+        sign_zero_flags(Y);
+        return;
+
+      // INX
+      case 0xe0:
+        X += 1;
+        sign_zero_flags(X);
+        return;
+    }
+  }
+
+  // undocumented opcodes
+  if (opcode_block == 3) {
+    if (upper_mask <= 0x60) {
+      local_clock += 2;
+    }
+    switch(upper_mask) {
+
+      // SLO
+      case 0x00:
+        return arithmetic_shift_left_or();
+
+      // RLA
+      case 0x20:
+        return rotate_left_and();
+
+      // SRE
+      case 0x40:
+        return shift_right_xor();
+
+      // RRA
+      case 0x60:
+        return rotate_right_add();
+
+      // SAX
+      case 0x80:
+        return store_x_and_accumulator();
+
+      // LAX
+      case 0xa0:
+        return load_accumulator_x();
+
+      // DCP
+      case 0xc0:
+        return decrement_compare();
+
+      // ISC
+      case 0xe0:
+        return increment_subtract();
+    }
+  }
+
+  // RMW operations
+  if (opcode_block == 2) {
+    if (current_addressing_mode == IMPLIED) {
+      switch(opcode) {
+        case 0x9a:
+          return store_x();
+
+        case 0xba:
+          return load_x();
+
+        default:
+          return;
+      }
+    }
+    if (upper_mask <= 0x60) {
+      if (current_addressing_mode != ACCUMULATOR) {
+        local_clock += 2; // shift extra cycles
+      }
+      if (current_addressing_mode == ABSOLUTE_X) {
+        extra_cycle_taken = true;
+      }
+    }
+
+    switch(upper_mask) {
+      // ASL
+      case 0x00:
+        return arithmetic_shift_left();
+
+      // ROL
+      case 0x20:
+        return rotate_left();
+
+      // LSR
+      case 0x40:
+        return shift_right();
+
+      // ROR
+      case 0x60:
+        return rotate_right();
+
+      // store X related
+      case 0x80:
+        return store_x();
+
+      // LDX and misc.
+      case 0xa0:
+        return load_x();
+
+      // DEC / DEX
+      case 0xc0:
+        return decrement();
+
+      // INC
+      case 0xe0:
+        return increment();
+    }
+  }
+
+  // ALU operations
+  if (opcode_block == 1) {
+    switch(upper_mask) {
+
+      // ORA
+      case 0x00:
+        return boolean_or();
+
+      // AND
+      case 0x20:
+        return boolean_and();
+
+      // EOR
+      case 0x40:
+        return boolean_xor();
+
+      // ADC
+      case 0x60:
+        return add_with_carry();
+
+      // STA
+      case 0x80:
+        if (
+          current_addressing_mode == ABSOLUTE_X ||
+          current_addressing_mode == ABSOLUTE_Y ||
+          current_addressing_mode == INDIRECT_Y
+        ) {
+          extra_cycle_taken = true;
+        }
+        return store(accumulator);
+
+      // LDA
+      case 0xa0:
+        accumulator = get_operand();
+        sign_zero_flags(accumulator);
+        return;
+
+      // CMP
+      case 0xc0:
+        return compare(accumulator);
+
+      // SBC
+      case 0xe0:
+        return subtract_with_carry();
+    }
+  }
+
+  // control instructions [must be last]
+  if (opcode_block == 0) {
+    // NOP
+    if (
+      address_mask >= 0x14 &&
+      (upper_mask >= 0xc0 ||
+      upper_mask <= 0x60)
+    ) {
+      get_operand();
+      return;
+    }
+
+    switch(upper_mask) {
+
+      // CPX
+      case 0xe0:
+        return compare(X);
+
+      // CPY
+      case 0xc0:
+        return compare(Y);
+
+      // LDY
+      case 0xa0:
+        Y = get_operand();
+        sign_zero_flags(Y);
+        return;
+
+      // STY
+      case 0x80:
+        return store(Y);
+    }
+  }
+
+  // outliers
   switch(opcode) {
 
     // BRK
@@ -168,1304 +602,183 @@ void CPU::execute_cycle() {
       stack_push(get_flags_as_byte());
       b_lower = false;
       interrupt_disable = true;
-      PC = memory->brk_vector();
+      PC = memory->irq_vector();
+      override_pc_increment = true;
       local_clock += 7;
       break;
 
-    // ORA indirect X
-    case 0x01:
-      boolean_or(indexed_indirect(arg1));
-      break;
-
-    // SLO indexed indirect
-    case 0x03:
-      arithmetic_shift_left_or(indexed_indirect(arg1));
-      break;
-
-    // NOP zero page
-    case 0x04:
-      zero_page(arg1);
-      break;
-
-    // ORA zero page
-    case 0x05:
-      boolean_or(zero_page(arg1));
-      break;
-
-    // ASL zero page
-    case 0x06:
-      arithmetic_shift_left(zero_page(arg1));
-      break;
-
-    // SLO zero page
-    case 0x07:
-      arithmetic_shift_left_or(zero_page(arg1));
-      break;
-
-    // PHP
-    case 0x08:
-      b_lower = true;
-      stack_push(get_flags_as_byte());
-      b_lower = false;
-      local_clock += 3;
-      PC += 1;
-      break;
-
-    // ORA immediate
-    case 0x09:
-      boolean_or(immediate(&arg1));
-      break;
-
-    // ASL accumulator
-    case 0x0a:
-      arithmetic_shift_left(&accumulator);
-      PC += 1;
-      break;
-
-    // NOP absolute
-    case 0x0c:
-      memory_absolute(address);
-      break;
-
-    // ORA absolute
-    case 0x0d:
-      boolean_or(memory_absolute(address));
-      break;
-
-    // ASL absolute
-    case 0x0e:
-      arithmetic_shift_left(memory_absolute(address));
-      break;
-
-    // SLO absolute
-    case 0x0f:
-      arithmetic_shift_left_or(memory_absolute(address));
-      break;
-
-    // BPL
-    case 0x10:
-      branch_on_bool(!sign, arg1);
-      break;
-
-    // ORA indirect Y
-    case 0x11:
-      boolean_or(indirect_indexed(arg1, false));
-      break;
-
-    // SLO indirect indexed
-    case 0x13:
-      arithmetic_shift_left_or(indirect_indexed(arg1, false));
-      break;
-
-    // NOP zero page X
-    case 0x14:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // ORA zero page X
-    case 0x15:
-      boolean_or(zero_page_indexed_X(arg1));
-      break;
-
-    // ASL zero page X
-    case 0x16:
-      arithmetic_shift_left(zero_page_indexed_X(arg1));
-      break;
-
-    // SLO zero page X
-    case 0x17:
-      arithmetic_shift_left_or(zero_page_indexed_X(arg1));
-      break;
-
-    // CLC (clear carry)
-    case 0x18:
-      set_flag(&carry, false);
-      break;
-
-    // ORA absolute Y
-    case 0x19:
-      boolean_or(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0x1a:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // SLO absolute Y
-    case 0x1b:
-      arithmetic_shift_left_or(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP absolute indexed X
-    case 0x1c:
-      absolute_indexed_X(address, false);
-      break;
-
-    // ORA absolute X
-    case 0x1d:
-      boolean_or(absolute_indexed_X(address, false));
-      break;
-
-    // ASL absolute X
-    case 0x1e:
-      arithmetic_shift_left(absolute_indexed_X(address, true));
-      break;
-
-    // SLO absolute X
-    case 0x1f:
-      arithmetic_shift_left_or(absolute_indexed_X(address, false));
-      break;
-
-    // JSR: a
+    // JSR
     case 0x20:
-      address_stack_push(PC + 2); // push next address - 1 to stack
+      address_stack_push(PC + 2);
       PC = address;
+      override_pc_increment = true;
+      override_cycle_increment = true;
       local_clock += 6;
-      break;
-
-    // AND indirect X
-    case 0x21:
-      boolean_and(indexed_indirect(arg1));
-      break;
-
-    // RLA indexed indirect
-    case 0x23:
-      rotate_left_and(indexed_indirect(arg1));
       break;
 
     // BIT zero page
     case 0x24:
-      bit(zero_page(arg1));
-      break;
-
-    // AND zero page
-    case 0x25:
-      boolean_and(zero_page(arg1));
-      break;
-
-    // ROL zero page
-    case 0x26:
-      rotate_left(zero_page(arg1));
-      break;
-
-    // RLA zero page
-    case 0x27:
-      rotate_left_and(zero_page(arg1));
-      break;
-
-    // PLP
-    case 0x28:
-      set_flags_from_byte(stack_pop());
-      local_clock += 4;
-      PC += 1;
-      break;
-
-    // AND immediate
-    case 0x29:
-      boolean_and(immediate(&arg1));
-      break;
-
-    // ROL accumulator
-    case 0x2a:
-      rotate_left(&accumulator);
-      PC += 1;
-      break;
+      return bit();
 
     // BIT absolute
     case 0x2c:
-      bit(memory_absolute(address));
-      break;
-
-    // AND absolute
-    case 0x2d:
-      boolean_and(memory_absolute(address));
-      break;
-
-    // ROL absolute
-    case 0x2e:
-      rotate_left(memory_absolute(address));
-      break;
-
-    // RLA absolute
-    case 0x2f:
-      rotate_left_and(memory_absolute(address));
-      break;
-
-    // BMI
-    case 0x30:
-      branch_on_bool(sign, arg1);
-      break;
-
-    // AND indirect Y
-    case 0x31:
-      boolean_and(indirect_indexed(arg1, false));
-      break;
-
-    // RLA indirect indexed
-    case 0x33:
-      rotate_left_and(indirect_indexed(arg1, false));
-      break;
-
-    // NOP zero page X
-    case 0x34:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // AND zero page X
-    case 0x35:
-      boolean_and(zero_page_indexed_X(arg1));
-      break;
-
-    // ROL zero page X
-    case 0x36:
-      rotate_left(zero_page_indexed_X(arg1));
-      break;
-
-    // RLA zero page X
-    case 0x37:
-      rotate_left_and(zero_page_indexed_X(arg1));
-      break;
-
-    // SEC (set carry)
-    case 0x38:
-      set_flag(&carry, true);
-      break;
-
-    // AND absolute Y
-    case 0x39:
-      boolean_and(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0x3a:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // RLA absolute Y
-    case 0x3b:
-      rotate_left_and(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP absolute indexed X
-    case 0x3c:
-      absolute_indexed_X(address, false);
-      break;
-
-    // AND absolute X
-    case 0x3d:
-      boolean_and(absolute_indexed_X(address, false));
-      break;
-
-    // ROL absolute X
-    case 0x3e:
-      rotate_left(absolute_indexed_X(address, true));
-      break;
-
-    // RLA absolute X
-    case 0x3f:
-      rotate_left_and(absolute_indexed_X(address, false));
-      break;
+      return bit();
 
     // RTI
     case 0x40:
       set_flags_from_byte(stack_pop());
       PC = address_stack_pop();
+      override_pc_increment = true;
+      override_cycle_increment = true;
       local_clock += 6;
-      break;
-
-    // EOR indirect X
-    case 0x41:
-      boolean_xor(indexed_indirect(arg1));
-      break;
-
-    // SRE indexed indirect
-    case 0x43:
-      shift_right_xor(indexed_indirect(arg1));
-      break;
-
-    // NOP zero page
-    case 0x44:
-      zero_page(arg1);
-      break;
-
-    // EOR zero page
-    case 0x45:
-      boolean_xor(zero_page(arg1));
-      break;
-
-    // LSR zero page
-    case 0x46:
-      shift_right(zero_page(arg1));
-      break;
-
-    // SRE zero page
-    case 0x47:
-      shift_right_xor(zero_page(arg1));
-      break;
-
-    // PHA
-    case 0x48:
-      stack_push(accumulator);
-      local_clock += 3;
-      PC += 1;
-      break;
-
-    // EOR immediate
-    case 0x49:
-      boolean_xor(immediate(&arg1));
-      break;
-
-    // LSR accumulator
-    case 0x4a:
-      shift_right(&accumulator);
-      PC += 1;
       break;
 
     // JMP absolute
     case 0x4c:
       PC = address;
-      local_clock += 3;
-      break;
-
-    // EOR absolute
-    case 0x4d:
-      boolean_xor(memory_absolute(address));
-      break;
-
-    // LSR absolute
-    case 0x4e:
-      shift_right(memory_absolute(address));
-      break;
-
-    // SRE absolute
-    case 0x4f:
-      shift_right_xor(memory_absolute(address));
-      break;
-
-    // BVC
-    case 0x50:
-      branch_on_bool(!overflow, arg1);
-      break;
-
-    // EOR indirect Y
-    case 0x51:
-      boolean_xor(indirect_indexed(arg1, false));
-      break;
-
-    // SRE indirect indexed
-    case 0x53:
-      shift_right_xor(indirect_indexed(arg1, false));
-      break;
-
-    // NOP zero page X
-    case 0x54:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // EOR zero page X
-    case 0x55:
-      boolean_xor(zero_page_indexed_X(arg1));
-      break;
-
-    // LSR zero page X
-    case 0x56:
-      shift_right(zero_page_indexed_X(arg1));
-      break;
-
-    // SRE zero paeg X
-    case 0x57:
-      shift_right_xor(zero_page_indexed_X(arg1));
-      break;
-
-    // CLI (clear interrupt)
-    case 0x58:
-      set_flag(&interrupt_disable, false);
-      break;
-
-    // EOR absolute Y
-    case 0x59:
-      boolean_xor(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0x5a:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // SRE absolute Y
-    case 0x5b:
-      shift_right_xor(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP absolute indexed X
-    case 0x5c:
-      absolute_indexed_X(address, false);
-      break;
-
-    // EOR absolute X
-    case 0x5d:
-      boolean_xor(absolute_indexed_X(address, false));
-      break;
-
-    // LSR absolute X
-    case 0x5e:
-      shift_right(absolute_indexed_X(address, true));
-      break;
-
-    // SRE absolute X
-    case 0x5f:
-      shift_right_xor(absolute_indexed_X(address, false));
+      override_pc_increment = true;
+      override_cycle_increment = true;
+      local_clock += 3; // special case
       break;
 
     // RTS
     case 0x60:
       PC = address_stack_pop() + 1; // add one to stored address
+      override_pc_increment = true;
+      override_cycle_increment = true;
       local_clock += 6;
-      break;
-
-    // ADC indirect X
-    case 0x61:
-      add_with_carry(*indexed_indirect(arg1));
-      break;
-
-    // RRA indexed indirect
-    case 0x63:
-      rotate_right_add(indexed_indirect(arg1));
-      break;
-
-    // NOP zero page
-    case 0x64:
-      zero_page(arg1);
-      break;
-
-    // ADC zero page
-    case 0x65:
-      add_with_carry(*zero_page(arg1));
-      break;
-
-    // ROR zero page
-    case 0x66:
-      rotate_right(zero_page(arg1));
-      break;
-
-    // RRA zero page
-    case 0x67:
-      rotate_right_add(zero_page(arg1));
-      break;
-
-    // PLA
-    case 0x68:
-      accumulator = stack_pop();
-      sign_zero_flags(accumulator);
-      local_clock += 4;
-      PC += 1;
-      break;
-
-    // ADC immediate
-    case 0x69:
-      add_with_carry(*immediate(&arg1));
-      break;
-
-    // ROR accumulator
-    case 0x6a:
-      rotate_right(&accumulator);
-      PC += 1;
       break;
 
     // JMP indirect
     case 0x6c:
-      PC = indirect(arg1, arg2);
-      break;
-
-    // ADC absolute
-    case 0x6d:
-      add_with_carry(*memory_absolute(address));
-      break;
-
-    // ROR absolute
-    case 0x6e:
-      rotate_right(memory_absolute(address));
-      break;
-
-    // RRA absolute
-    case 0x6f:
-      rotate_right_add(memory_absolute(address));
-      break;
-
-    // BVS
-    case 0x70:
-      branch_on_bool(overflow, arg1);
-      break;
-
-    // ADC indirect Y
-    case 0x71:
-      add_with_carry(*indirect_indexed(arg1, false));
-      break;
-
-    // RRA indirect indexed
-    case 0x73:
-      rotate_right_add(indirect_indexed(arg1, false));
-      break;
-
-    // NOP zero page X
-    case 0x74:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // ADC zero page X
-    case 0x75:
-      add_with_carry(*zero_page_indexed_X(arg1));
-      break;
-
-    // ROR zero page X
-    case 0x76:
-      rotate_right(zero_page_indexed_X(arg1));
-      break;
-
-    // RRA zero page X
-    case 0x77:
-      rotate_right_add(zero_page_indexed_X(arg1));
-      break;
-
-    // SEI (set interrupt)
-    case 0x78:
-      set_flag(&interrupt_disable, true);
-      break;
-
-    // ADC absolute Y
-    case 0x79:
-      add_with_carry(*absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0x7a:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // RRA absolute Y
-    case 0x7b:
-      rotate_right_add(absolute_indexed_Y(address, false));
-      break;
-
-    // NOP absolute indexed X
-    case 0x7c:
-      absolute_indexed_X(address, false);
-      break;
-
-    // ADC absolute X
-    case 0x7d:
-      add_with_carry(*absolute_indexed_X(address, false));
-      break;
-
-    // ROR absolute X
-    case 0x7e:
-      rotate_right(absolute_indexed_X(address, true));
-      break;
-
-    // RRA absolute X
-    case 0x7f:
-      rotate_right_add(absolute_indexed_X(address, false));
-      break;
-
-    // NOP immediate
-    case 0x80:
-      immediate(&arg1);
-      break;
-
-    // STA indirect X
-    case 0x81:
-      store_register(&accumulator, indexed_indirect(arg1));
-      break;
-
-    // NOP immediate
-    case 0x82:
-      immediate(&arg1);
-      break;
-
-    // SAX indirect X
-    case 0x83:
-      *(indexed_indirect(arg1)) = X & accumulator;
-      break;
-
-    // STY zero page
-    case 0x84:
-      store_register(&Y, zero_page(arg1));
-      break;
-
-    // STA zero page
-    case 0x85:
-      store_register(&accumulator, zero_page(arg1));
-      break;
-
-    // STX zero page
-    case 0x86:
-      store_register(&X, zero_page(arg1));
-      break;
-
-    // SAX zero page
-    case 0x87:
-      *(zero_page(arg1)) = X & accumulator;
-      break;
-
-    // DEY
-    case 0x88:
-      decrement(&Y);
-      PC += 1;
-      break;
-
-    // NOP immediate
-    case 0x89:
-      immediate(&arg1);
-      break;
-
-    // TXA
-    case 0x8a:
-      transfer_register(&accumulator, X, true);
-      break;
-
-    // STY absolute
-    case 0x8c:
-      store_register(&Y, memory_absolute(address));
-      break;
-
-    // STA absolute
-    case 0x8d:
-      store_register(&accumulator, memory_absolute(address));
-      break;
-
-    // STX absolute
-    case 0x8E:
-      store_register(&X, memory_absolute(address));
-      break;
-
-    // SAX absolute
-    case 0x8f:
-      *(memory_absolute(address)) = X & accumulator;
-      break;
-
-    // BCC
-    case 0x90:
-      branch_on_bool(!carry, arg1);
-      break;
-
-    // STA indirect Y
-    case 0x91:
-      store_register(&accumulator, indirect_indexed(arg1, true));
-      break;
-
-    // STY zero page X
-    case 0x94:
-      store_register(&Y, zero_page_indexed_X(arg1));
-      break;
-
-    // STA zero page X
-    case 0x95:
-      store_register(&accumulator, zero_page_indexed_X(arg1));
-      break;
-
-    // STX zero page Y
-    case 0x96:
-      store_register(&X, zero_page_indexed_Y(arg1));
-      break;
-
-    // SAX zero page Y
-    case 0x97:
-      *(zero_page_indexed_Y(arg1)) = X & accumulator;
-      break;
-
-    // TYA
-    case 0x98:
-      transfer_register(&accumulator, Y, true);
-      break;
-
-    // STA absolute Y
-    case 0x99:
-      store_register(&accumulator, absolute_indexed_Y(address, true));
-      break;
-
-    // TXS
-    case 0x9a:
-      transfer_register(&SP, X, false);
-      break;
-
-    // STA absolute X
-    case 0x9d:
-      store_register(&accumulator, absolute_indexed_X(address, true));
-      break;
-
-    // LDY immediate
-    case 0xa0:
-      load_register(&Y, immediate(&arg1));
-      break;
-
-    // LDA indirect X
-    case 0xa1:
-      load_register(&accumulator, indexed_indirect(arg1));
-      break;
-
-    // LDX immediate
-    case 0xa2:
-      load_register(&X, immediate(&arg1));
-      break;
-
-    // LAX indexed indirect
-    case 0xa3:
-      load_accumulator_x(indexed_indirect(arg1));
-      break;
-
-    // LDY zero page
-    case 0xa4:
-      load_register(&Y, zero_page(arg1));
-      break;
-
-    // LDA zero page
-    case 0xa5:
-      load_register(&accumulator, zero_page(arg1));
-      break;
-
-    // LDX zero page
-    case 0xa6:
-      load_register(&X, zero_page(arg1));
-      break;
-
-    // LAX zero page
-    case 0xa7:
-      load_accumulator_x(zero_page(arg1));
-      break;
-
-    // TAY
-    case 0xa8:
-      transfer_register(&Y, accumulator, true);
-      break;
-
-    // LDA immediate
-    case 0xa9:
-      load_register(&accumulator, immediate(&arg1));
-      break;
-
-    // TAX
-    case 0xaa:
-      transfer_register(&X, accumulator, true);
-      break;
-
-    // LAX immediate
-    case 0xab:
-      load_accumulator_x(immediate(&arg1));
-      break;
-
-    // LDY absolute
-    case 0xac:
-      load_register(&Y, memory_absolute(address));
-      break;
-
-    // LDA absolute
-    case 0xad:
-      load_register(&accumulator, memory_absolute(address));
-      break;
-
-    // LDX absolute
-    case 0xae:
-      load_register(&X, memory_absolute(address));
-      break;
-
-    // LAX absolute
-    case 0xaf:
-      load_accumulator_x(memory_absolute(address));
-      break;
-
-    // BCS
-    case 0xB0:
-      branch_on_bool(carry, arg1);
-      break;
-
-    // LDA indirect Y
-    case 0xb1:
-      load_register(&accumulator, indirect_indexed(arg1, false));
-      break;
-
-    // LAX indirect indexed
-    case 0xb3:
-      load_accumulator_x(indirect_indexed(arg1, false));
-      break;
-
-    // LDY zero page X
-    case 0xb4:
-      load_register(&Y, zero_page_indexed_X(arg1));
-      break;
-
-    // LDA zero page X
-    case 0xb5:
-      load_register(&accumulator, zero_page_indexed_X(arg1));
-      break;
-
-    // LDX zero page Y
-    case 0xb6:
-      load_register(&X, zero_page_indexed_Y(arg1));
-      break;
-
-    // LAX zero page indexed Y
-    case 0xb7:
-      load_accumulator_x(zero_page_indexed_Y(arg1));
-      break;
-
-    // CLV (clear overflow)
-    case 0xb8:
-      set_flag(&overflow, false);
-      break;
-
-    // LDA absolute Y
-    case 0xb9:
-      load_register(&accumulator, absolute_indexed_Y(address, false));
-      break;
-
-    // TSX
-    case 0xba:
-      transfer_register(&X, SP, true);
-      break;
-
-    // LDY absolute X
-    case 0xbc:
-      load_register(&Y, absolute_indexed_X(address, false));
-      break;
-
-    // LDA Absolute X
-    case 0xbd:
-      load_register(&accumulator, absolute_indexed_X(address, false));
-      break;
-
-    // LDX absolute Y
-    case 0xbe:
-      load_register(&X, absolute_indexed_Y(address, false));
-      break;
-
-    // LAX absolute indexed Y
-    case 0xbf:
-      load_accumulator_x(absolute_indexed_Y(address, false));
-      break;
-
-    // CPY: immediate
-    case 0xc0:
-      compare(Y, immediate(&arg1));
-      break;
-
-    // CMP: indirect, X
-    case 0xc1:
-      compare(accumulator, indexed_indirect(arg1));
-      break;
-
-    // NOP immediate
-    case 0xc2:
-      immediate(&arg1);
-      break;
-
-    // DCP indirect X
-    case 0xc3:
-      decrement_compare(indexed_indirect(arg1));
-      break;
-
-    // CPY: zero page
-    case 0xc4:
-      compare(Y, zero_page(arg1));
-      break;
-
-    // CMP: zero page
-    case 0xc5:
-      compare(accumulator, zero_page(arg1));
-      break;
-
-    // DEC zero page
-    case 0xc6:
-      decrement(zero_page(arg1));
-      break;
-
-    // DCP zero page
-    case 0xc7:
-      decrement_compare(zero_page(arg1));
-      break;
-
-    // INY
-    case 0xc8:
-      increment(&Y);
-      PC += 1;
-      break;
-
-    // CMP: i
-    case 0xc9:
-      compare(accumulator, immediate(&arg1));
-      break;
-
-    // DEX
-    case 0xca:
-      decrement(&X);
-      PC += 1;
-      break;
-
-    // CPY: absolute
-    case 0xcc:
-      compare(Y, memory_absolute(address));
-      break;
-
-    // CMP: absolute
-    case 0xcd:
-      compare(accumulator, memory_absolute(address));
-      break;
-
-    // DEC absolute
-    case 0xce:
-      decrement(memory_absolute(address));
-      break;
-
-    // DCP absolute
-    case 0xcf:
-      decrement_compare(memory_absolute(address));
-      break;
-
-    // BNE
-    case 0xD0:
-      branch_on_bool(!zero, arg1);
-      break;
-
-    // CMP: indirect, Y
-    case 0xd1:
-      compare(accumulator, indirect_indexed(arg1, false));
-      break;
-
-    // DCP indrect Y
-    case 0xd3:
-      decrement_compare(indirect_indexed(arg1, true));
-      break;
-
-    // NOP zero page X
-    case 0xd4:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // CMP: zero page, X
-    case 0xd5:
-      compare(accumulator, zero_page_indexed_X(arg1));
-      break;
-
-    // DEC zero page X
-    case 0xd6:
-      decrement(zero_page_indexed_X(arg1));
-      break;
-
-    // DCP zero page X
-    case 0xd7:
-      decrement_compare(zero_page_indexed_X(arg1));
-      break;
-
-    // CLD (clear decimal)
-    case 0xd8:
-      set_flag(&decimal, false);
-      break;
-
-    // CMP: absolute, Y
-    case 0xd9:
-      compare(accumulator, absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0xda:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // DCP absolute Y
-    case 0xdb:
-      decrement_compare(absolute_indexed_Y(address, true));
-      break;
-
-    // NOP absolute indexed X
-    case 0xdc:
-      absolute_indexed_X(address, false);
-      break;
-
-    // CMP: absolute, X
-    case 0xdd:
-      compare(accumulator, absolute_indexed_X(address, false));
-      break;
-
-    // DEC absolute X
-    case 0xde:
-      decrement(absolute_indexed_X(address, true));
-      break;
-
-    // DCP absolute X
-    case 0xdf:
-      decrement_compare(absolute_indexed_X(address, true));
-      break;
-
-    // CPX: immediate
-    case 0xe0:
-      compare(X, immediate(&arg1));
-      break;
-
-    // SBC indirect X
-    case 0xe1:
-      add_with_carry(~*indexed_indirect(arg1));
-      break;
-
-    // NOP immediate
-    case 0xe2:
-      immediate(&arg1);
-      break;
-
-    // ISB indirect X
-    case 0xe3:
-      increment_subtract(indexed_indirect(arg1));
-      break;
-
-    // CPX: zero page
-    case 0xe4:
-      compare(X, zero_page(arg1));
-      break;
-
-    // SBC zero page
-    case 0xe5:
-      add_with_carry(~*zero_page(arg1));
-      break;
-
-    // INC zero page
-    case 0xe6:
-      increment(zero_page(arg1));
-      break;
-
-    // ISB zero page
-    case 0xe7:
-      increment_subtract(zero_page(arg1));
-      break;
-
-    // INX
-    case 0xe8:
-      increment(&X);
-      PC += 1;
-      break;
-
-    // SBC immediate
-    case 0xe9:
-      add_with_carry(~*immediate(&arg1));
-      break;
-
-    // NOP
-    case 0xea:
-      local_clock += 2;
-      PC += 1;
-      break;
-
-    // SBC immediate [the undocumented one]
-    case 0xeb:
-      add_with_carry(~*immediate(&arg1));
-      break;
-
-    // CPX: absolute
-    case 0xec:
-      compare(X, memory_absolute(address));
-      break;
-
-    // SBC absolute
-    case 0xed:
-      add_with_carry(~*memory_absolute(address));
-      break;
-
-    // INC absolute
-    case 0xee:
-      increment(memory_absolute(address));
-      break;
-
-    // ISB absolute
-    case 0xef:
-      increment_subtract(memory_absolute(address));
-      break;
-
-    // BEQ
-    case 0xF0:
-      branch_on_bool(zero, arg1);
-      break;
-
-    // SBC indirect Y
-    case 0xf1:
-      add_with_carry(~*indirect_indexed(arg1, false));
-      break;
-
-    // ISB indirect Y
-    case 0xf3:
-      increment_subtract(indirect_indexed(arg1, true));
-      break;
-
-    // NOP zero page X
-    case 0xf4:
-      zero_page_indexed_X(arg1);
-      break;
-
-    // SBC zero page X
-    case 0xf5:
-      add_with_carry(~*zero_page_indexed_X(arg1));
-      break;
-
-    // INC zero page X
-    case 0xf6:
-      increment(zero_page_indexed_X(arg1));
-      break;
-
-    // ISB zero page X
-    case 0xf7:
-      increment_subtract(zero_page_indexed_X(arg1));
-      break;
-
-    // SED (set decimal)
-    case 0xf8:
-      set_flag(&decimal, true);
-      break;
-
-    // SBC absolute Y
-    case 0xf9:
-      add_with_carry(~*absolute_indexed_Y(address, false));
-      break;
-
-    // NOP
-    case 0xfa:
-      PC += 1;
-      local_clock += 2;
-      break;
-
-    // ISB absolute Y
-    case 0xfb:
-      increment_subtract(absolute_indexed_Y(address, true));
-      break;
-
-    // NOP absolute indexed X
-    case 0xfc:
-      absolute_indexed_X(address, false);
-      break;
-
-    // SBC absolute X
-    case 0xfd:
-      add_with_carry(~*absolute_indexed_X(address, false));
-      break;
-
-    // INC absolute X
-    case 0xfe:
-      increment(absolute_indexed_X(address, true));
-      break;
-
-    // ISB absolute X
-    case 0xff:
-      increment_subtract(absolute_indexed_X(address, true));
-      break;
-
-    default:
-      printf("this instruction is not here lmao: %x\n", opcode);
-      valid = false;
+      PC = get_operand();
+      override_pc_increment = true;
       break;
   }
 }
 
-
-void CPU::boolean_xor(uint8_t* operand) {
-  accumulator ^= *operand;
+void CPU::boolean_xor() {
+  accumulator ^= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::boolean_and(uint8_t* operand) {
-  accumulator &= *operand;
+void CPU::boolean_and() {
+  accumulator &= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::boolean_or(uint8_t* operand) {
-  accumulator |= *operand;
+void CPU::boolean_or() {
+  accumulator |= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::increment(uint8_t* operand) {
-  *operand += 1;
-  sign_zero_flags(*operand);
-  local_clock += 2;
-}
-
-void CPU::decrement(uint8_t* operand) {
-  *operand -= 1;
-  sign_zero_flags(*operand);
-  local_clock += 2;
-}
-
-void CPU::transfer_register(uint8_t* to, uint8_t from, bool flags) {
-  *to = from;
-  if (flags) {
-    sign_zero_flags(from);
+void CPU::increment() {
+  // NOP
+  if (current_addressing_mode == ACCUMULATOR) {
+    return;
+  } else {
+    store(get_operand() + 1);
+    sign_zero_flags(get_operand());
+    extra_cycle_taken = (current_addressing_mode == ABSOLUTE_X);
+    local_clock += 2;
   }
-  local_clock += 2;
-  PC += 1;
 }
 
-void CPU::bit(uint8_t* operand) {
-  uint8_t value = *operand;
+void CPU::decrement() {
+  // DEX
+  if (current_addressing_mode == ACCUMULATOR) {
+    X = X - 1;
+    sign_zero_flags(X);
+  } else {
+    store(get_operand() - 1);
+    sign_zero_flags(get_operand());
+    extra_cycle_taken = (current_addressing_mode == ABSOLUTE_X);
+    local_clock += 2;
+  }
+}
+
+void CPU::store_x() {
+  if (current_addressing_mode == IMPLIED) {
+    SP = X;
+  } else {
+    store(X);
+  }
+  if (current_addressing_mode == ACCUMULATOR) {
+    sign_zero_flags(X);
+  }
+}
+
+void CPU::load_x() {
+  if (current_addressing_mode == IMPLIED) {
+    X = SP;
+  } else {
+    X = get_operand();
+  }
+  sign_zero_flags(X);
+}
+
+void CPU::bit() {
+  uint8_t value = get_operand();
   zero = ((value & accumulator) == 0);
   overflow = (value >> 6) & 1;
   sign = value >= 0x80;
 }
 
-void CPU::set_flag(bool* flag, bool value) {
-  *flag = value;
-  local_clock += 2;
-  PC += 1;
-}
-
-void CPU::load_register(uint8_t* reg, uint8_t* operand) {
-  *reg = *operand;
-  sign_zero_flags(*reg);
-}
-
-void CPU::store_register(uint8_t* reg, uint8_t* operand) {
-  *operand = *reg;
-}
-
-void CPU::load_accumulator_x(uint8_t* operand) {
-  accumulator = X = *operand;
+void CPU::load_accumulator_x() {
+  accumulator = X = get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::decrement_compare(uint8_t* operand) {
-  *operand -= 1;
-  sign_zero_flags((accumulator - *operand) & 0xff);
+void CPU::store_x_and_accumulator() {
+  store(X & accumulator);
+}
+
+void CPU::decrement_compare() {
+  store(get_operand() - 1);
+  sign_zero_flags((accumulator - get_operand()) & 0xff);
   local_clock += 2;
 }
 
-void CPU::rotate_right_add(uint8_t* operand) {
-  rotate_right(operand);
-  add_with_carry(*operand);
+void CPU::rotate_right_add() {
+  rotate_right();
+  add_with_carry();
 }
 
-void CPU::shift_right_xor(uint8_t* operand) {
-  shift_right(operand);
-  accumulator ^= *operand;
+void CPU::shift_right_xor() {
+  shift_right();
+  accumulator ^= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::rotate_left_and(uint8_t* operand) {
-  rotate_left(operand);
-  accumulator &= *operand;
+void CPU::rotate_left_and() {
+  rotate_left();
+  accumulator &= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::arithmetic_shift_left_or(uint8_t* operand) {
-  arithmetic_shift_left(operand);
-  accumulator |= *operand;
+void CPU::arithmetic_shift_left_or() {
+  arithmetic_shift_left();
+  accumulator |= get_operand();
   sign_zero_flags(accumulator);
 }
 
-void CPU::increment_subtract(uint8_t* operand) {
-  *operand += 1;
-  add_with_carry(~(*operand));
-  local_clock += 2;
+void CPU::increment_subtract() {
+  store(get_operand() + 1);
+  subtract_with_carry();
+  if (current_addressing_mode != IMMEDIATE) {
+    local_clock += 2;
+  }
 }
 
-void CPU::add_with_carry(uint8_t operand) {
+void CPU::add_with_carry() {
+  add_with_carry_helper(get_operand());
+}
+
+void CPU::subtract_with_carry() {
+  add_with_carry_helper(~get_operand());
+}
+
+void CPU::add_with_carry_helper(uint8_t operand) {
   uint8_t before = accumulator;
   uint16_t sum = accumulator + operand + carry;
   accumulator += operand + carry;
@@ -1499,44 +812,44 @@ void CPU::set_flags_from_byte(uint8_t flags) {
   sign = (flags >> 7) & 0x1;
 }
 
-void CPU::rotate_right(uint8_t* operand) {
-  uint8_t new_value = (carry << 7) | (*operand >> 1);
-  carry = *operand & 0x1;
+void CPU::rotate_right() {
+  uint8_t value = get_operand();
+  uint8_t new_value = (carry << 7) | (value >> 1);
+  carry = value & 0x1;
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
-  *operand = new_value;
-  local_clock += 2;
+  store(new_value);
 }
 
-void CPU::rotate_left(uint8_t* operand) {
-  uint8_t new_value = (*operand << 1) | carry;
-  carry = (*operand >> 7) & 0x1;
+void CPU::rotate_left() {
+  uint8_t value = get_operand();
+  uint8_t new_value = (value << 1) | carry;
+  carry = (value >> 7) & 0x1;
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
-  *operand = new_value;
-  local_clock += 2;
+  store(new_value);
 }
 
-void CPU::shift_right(uint8_t* operand) {
-  uint8_t new_value = *operand >> 1;
-  carry = *operand & 0x1;
+void CPU::shift_right() {
+  uint8_t value = get_operand();
+  uint8_t new_value = value >> 1;
+  carry = value & 0x1;
   zero = (new_value == 0);
   sign = (new_value >= 0x80); // this isq basically impossible i assume
-  *operand = new_value;
-  local_clock += 2;
+  store(new_value);
 }
 
-void CPU::arithmetic_shift_left(uint8_t* operand) {
-  uint8_t new_value = *operand << 1;
-  carry = (*operand >> 7) & 0x1;
+void CPU::arithmetic_shift_left() {
+  uint8_t value = get_operand();
+  uint8_t new_value = value << 1;
+  carry = (value >> 7) & 0x1;
   zero = (new_value == 0);
   sign = (new_value >= 0x80);
-  *operand = new_value;
-  local_clock += 2;
+  store(new_value);
 }
 
-void CPU::compare(uint8_t register_value, uint8_t* operand) {
-  uint8_t argument_value = *operand;
+void CPU::compare(uint8_t register_value) {
+  uint8_t argument_value = get_operand();
   carry = (register_value >= argument_value);
   zero = (register_value == argument_value);
   sign = ((uint8_t) (register_value - argument_value)) >= 0x80;
@@ -1547,109 +860,143 @@ void CPU::sign_zero_flags(uint8_t val) {
   zero = (val == 0);
 }
 
-void CPU::branch_on_bool(bool arg, int8_t offset) {
+void CPU::store(uint8_t value) {
+  uint8_t arg1 = memory->read(PC + 1);
+  switch(current_addressing_mode) {
+    case IMPLIED:
+      return;
+
+    case IMMEDIATE:
+      return;
+
+    case RELATIVE:
+      return;
+
+    case ACCUMULATOR:
+      accumulator = value;
+      return;
+
+    default:
+      return memory->write(get_memory_index(), value);
+  }
+}
+
+uint16_t CPU::get_memory_index() {
+  uint8_t arg1 = memory->read(PC + 1);
+  uint8_t arg2 = memory->read(PC + 2);
+  uint16_t address = arg2 << 8 | arg1;
+  switch(current_addressing_mode) {
+
+    case ZERO_PAGE:
+      return arg1;
+
+    case ZERO_PAGE_Y:
+      return (arg1 + Y) & 0xff;
+
+    case ZERO_PAGE_X:
+      return (arg1 + X) & 0xff;
+
+    case ABSOLUTE:
+      return address;
+
+    case ABSOLUTE_X:
+      return absolute_indexed_X(address);
+
+    case ABSOLUTE_Y:
+      return absolute_indexed_Y(address);
+
+    case INDIRECT_X:
+      return indexed_indirect(arg1);
+
+    case INDIRECT_Y:
+      return indirect_indexed(arg1);
+  }
+}
+
+uint16_t CPU::get_operand() {
+  uint8_t arg1 = memory->read(PC + 1);
+  uint8_t arg2 = memory->read(PC + 2);
+  switch(current_addressing_mode) {
+    case IMPLIED:
+      return 0;
+
+    case IMMEDIATE:
+      return arg1;
+
+    case ACCUMULATOR:
+      return accumulator;
+
+    case INDIRECT:
+      return indirect(arg1, arg2);
+
+    default:
+      return memory->read(get_memory_index());
+  }
+}
+
+void CPU::branch_on_bool(bool arg) {
   if (arg) {
-    uint16_t original_pc_upper = (PC + 2) >> 8; // upper nibble
-    PC += ((int8_t) offset) + 2;
-    uint16_t new_pc_upper = PC >> 8;
-    // extra cycle if crossed page boundary
+    uint8_t arg1 = memory->read(PC + 1);
+    uint16_t new_pc = PC + ((int8_t) arg1) + 2;
+    uint16_t original_pc_upper = (PC + 2) >> 8;
+    uint16_t new_pc_upper = new_pc >> 8;
     if (original_pc_upper != new_pc_upper) {
-      local_clock += 1;
+      extra_cycle_taken = true; // page boundary crossed
     }
     local_clock += 1;
-  } else {
-    PC += 2;
+    override_pc_increment = true;
+    PC = new_pc;
   }
-  local_clock += 2;
 }
 
-/* ADDRESSING MODES POINTER */
-
-uint8_t* CPU::immediate(uint8_t* arg) {
-  PC += 2;
-  local_clock += 2;
-  return arg;
-}
-
-uint8_t* CPU::zero_page(uint8_t arg) {
-  local_clock += 3;
-  PC += 2;
-  return memory->get_pointer(arg);
-}
-
-uint8_t* CPU::memory_absolute(uint16_t address) {
-  local_clock += 4;
-  PC += 3;
-  return memory->get_pointer(address);
-}
-
-uint8_t* CPU::zero_page_indexed_X(uint8_t arg) {
-  local_clock += 4;
-  PC += 2;
-  return memory->get_pointer((arg + X) & 0xff);
-}
-
-uint8_t* CPU::zero_page_indexed_Y(uint8_t arg) {
-  local_clock += 4;
-  PC += 2;
-  return memory->get_pointer((arg + Y) & 0xff);
-}
-
-uint8_t* CPU::absolute_indexed_X(uint16_t arg, bool override_page_boundary) {
-  local_clock += 4;
+uint16_t CPU::absolute_indexed_X(uint16_t arg) {
   uint8_t summed_low_byte = arg + X;
-  if (summed_low_byte < X || override_page_boundary) {
-    local_clock += 1; // page overflow CPU cycle
+  if (summed_low_byte < X) {
+    extra_cycle_taken = true; // page overflow CPU cycle
   }
-  PC += 3;
-  return memory->get_pointer(arg + X);
+  return arg + X;
 }
 
-uint8_t* CPU::absolute_indexed_Y(uint16_t arg, bool override_page_boundary) {
-  local_clock += 4;
+uint16_t CPU::absolute_indexed_Y(uint16_t arg) {
   uint8_t summed_low_byte = arg + Y;
-  if (summed_low_byte < Y || override_page_boundary) {
-    local_clock += 1; // page overflow CPU cycle
+  if (summed_low_byte < Y) {
+    extra_cycle_taken = true;
   }
-  PC += 3;
-  return memory->get_pointer(arg + Y);
+  return arg + Y;
 }
 
-uint8_t* CPU::indexed_indirect(uint8_t arg) {
-  local_clock += 6;
-  PC += 2;
-  uint16_t low_byte = (uint16_t) memory->get_item((arg + X) & 0xff);
-  uint16_t high_byte = (uint16_t) memory->get_item((arg + X + 1) & 0xff) << 8;
-  return memory->get_pointer(high_byte | low_byte);
+uint16_t CPU::indexed_indirect(uint8_t arg) {
+  uint8_t low_byte_address = (arg + X) & 0xff;
+  uint8_t high_byte_address = (arg + X + 1) & 0xff;
+  uint16_t low_byte = memory->read(low_byte_address);
+  uint16_t high_byte = memory->read(high_byte_address) << 8;
+  return high_byte | low_byte;
 }
 
-uint8_t* CPU::indirect_indexed(uint8_t arg, bool override_page_boundary) {
-  local_clock += 5;
-  uint16_t low_byte = memory->get_item(arg);
-  uint16_t high_byte = (uint16_t) memory->get_item((arg + 1) & 0xff) << 8;
+uint16_t CPU::indirect_indexed(uint8_t arg) {
+  uint8_t high_byte_address = (arg + 1) & 0xff;
+  uint16_t low_byte = memory->read(arg);
+  uint16_t high_byte = memory->read(high_byte_address) << 8;
   uint8_t summed_low_byte = low_byte + Y;
-  if (summed_low_byte < Y || override_page_boundary) {
-    local_clock += 1; // page overflow CPU cycle
+  if (summed_low_byte < Y) {
+    extra_cycle_taken = true; // page overflow CPU cycle
   }
-  PC += 2;
-  return memory->get_pointer((high_byte | low_byte) + Y);
+  return (high_byte | low_byte) + Y;
 }
 
 uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
   uint16_t lower_byte_address = arg2 << 8 | arg1;
   uint16_t upper_byte_address = arg2 << 8 | ((arg1 + 1) & 0xff);
-  uint8_t lower_byte = memory->get_item(lower_byte_address);
-  uint8_t upper_byte = memory->get_item(upper_byte_address);
-  uint16_t new_pc_address = (upper_byte << 8) | lower_byte;
-  PC += 3;
-  local_clock += 5;
-  return new_pc_address;
+  uint8_t lower_byte = memory->read(lower_byte_address);
+  uint8_t upper_byte = memory->read(upper_byte_address);
+  uint16_t address = (upper_byte << 8) | lower_byte;
+  return address;
 }
 
-// TODO: only works with mapper 0!
-void CPU::reset_game() {
+void CPU::initialize() {
   accumulator = X = Y = 0;
   PC = memory->reset_vector();
+  PC = 0xc000; // just for nestest
   SP = 0xfd;
   valid = true;
   interrupt_disable = true;

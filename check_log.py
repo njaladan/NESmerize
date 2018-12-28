@@ -22,7 +22,7 @@ def get_right_log(ind):
     y = log_line[60:62]
     p = log_line[65:67]
     sp = log_line[71:73]
-    cyc = log_line[78:]
+    cyc = log_line[78:81]
     return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp, 'cyc': int(cyc)}
 
 
