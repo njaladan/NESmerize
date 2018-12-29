@@ -6,9 +6,10 @@
 
 using namespace std;
 
-enum Interrupt {NONE, BRK, IRQ, NMI};
+enum Interrupt {NONE, IRQ, NMI};
 
 #include "memory.cpp"
+#include "opcodes.cpp"
 #include "cpu.cpp"
 #include "ppu_memory.cpp"
 #include "ppu.cpp"
@@ -74,7 +75,7 @@ void NES::run_game() {
   high_resolution_clock::time_point t1 = high_resolution_clock::now();
   while(cpu.valid) {
     cpu.execute_instruction();
-    // ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
+    ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
   }
   high_resolution_clock::time_point t2 = high_resolution_clock::now();
   auto d = duration_cast<microseconds>(t2 - t1).count();

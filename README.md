@@ -27,7 +27,8 @@ The code's pretty messy, since I've been prioritizing quantity of quality (at th
 - [x] refactor the opcode switch completely [low priority]
 - [x] have a instance variable for "extra cycle" flag
 - [ ] use a function for detecting upper byte overflow?
-- [ ] once running nes roms, remove unofficial opcode implementations 
+- [ ] once running nes roms, remove unofficial opcode implementations
+- [ ] move enums and initializer lists to separate file
 
 
 ### Current to-dos
@@ -36,6 +37,16 @@ Smaller things to work on incrementally - more for me to not forget what I'm wor
 - [x] STA always increments cycle in favor of page turn - how to force this?
 - [x] unofficial opcodes, starting at LAX
 - [x] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
+
+
+## Benchmarks
+### cpu.cpp
+
+case-switch for all opcodes: ~400musec
+logical choose for each instruction: ~1500musec
+prebuilt opcode table: ~1000musec
+
+possible to combine both? pre-generate jump table with opcode objects at initialization using logical choice [or just hardcode, either way]
 
 
 ## Resources
