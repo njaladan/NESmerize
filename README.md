@@ -37,16 +37,17 @@ Smaller things to work on incrementally - more for me to not forget what I'm wor
 - [x] STA always increments cycle in favor of page turn - how to force this?
 - [x] unofficial opcodes, starting at LAX
 - [x] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
+- [ ] benchmark case-switch and check why it's so fast
 
 
 ## Benchmarks
 ### cpu.cpp
 
-case-switch for all opcodes: ~400musec
-logical choose for each instruction: ~1500musec
-prebuilt opcode table: ~1000musec
+case-switch for all opcodes: ~6 microseconds (fa08c0d)
 
-possible to combine both? pre-generate jump table with opcode objects at initialization using logical choice [or just hardcode, either way]
+prebuilt opcode table: ~200 microseconds (8edcb51)
+
+[checked with g++ nes.cpp -std=c++11 -O3 -g -fno-omit-frame-pointer and std::chrono]
 
 
 ## Resources
