@@ -8,11 +8,14 @@ using namespace std;
 
 enum Interrupt {NONE, IRQ, NMI};
 
-#include "memory.cpp"
 #include "opcodes.cpp"
-#include "cpu.cpp"
+#include "cpu.h"
+#include "memory.h"
+
 #include "ppu_memory.cpp"
 #include "ppu.cpp"
+#include "memory.cpp"
+#include "cpu.cpp"
 
 using namespace std::chrono;
 
@@ -34,8 +37,11 @@ void NES::create_system() {
   cpu.set_memory(&memory);
   ppu.set_memory(&memory);
   ppu.set_ppu_memory(&ppu_memory);
+  ppu.set_cpu(&cpu);
+  ppu.initialize();
   memory.set_cpu(&cpu);
   memory.set_ppu_memory(&ppu_memory);
+  memory.set_ppu(&ppu);
 }
 
 void NES::load_program(char* filename) {

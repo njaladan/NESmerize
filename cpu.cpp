@@ -1,110 +1,4 @@
-
 uint16_t STACK_OFFSET = 0x100;
-
-
-class CPU {
-  public:
-    void set_memory(Memory*);
-    uint64_t local_clock;
-
-    // handle state
-    void initialize();
-    void execute_instruction();
-
-    // for debugging only
-    bool valid;
-
-    // external devices can interrupt
-    Interrupt interrupt_type;
-
-  private:
-    uint8_t accumulator;
-    uint8_t X;
-    uint8_t Y;
-    uint16_t PC;
-    // only holds lower byte of the real SP
-    uint8_t SP;
-
-    // CPU flags
-    bool carry;
-    bool zero;
-    bool interrupt_disable;
-    bool overflow;
-    bool sign;
-    bool decimal;
-    bool b_upper;
-    bool b_lower;
-
-    // "hardware" connections
-    Memory* memory;
-
-    // keep state during execution
-    Opcode current_opcode;
-    bool override_pc_increment;
-    bool extra_cycle_taken;
-
-    // flag operations
-    uint8_t get_flags_as_byte();
-    void set_flags_from_byte(uint8_t);
-
-    // memory functions
-    void stack_push(uint8_t);
-    uint8_t stack_pop();
-    void address_stack_push(uint16_t);
-    uint16_t address_stack_pop();
-
-    // debugging
-    void print_register_values();
-
-    // opcode implementation
-    void compare(uint8_t);
-    void sign_zero_flags(uint8_t);
-    void rotate_left();
-    void rotate_right();
-    void shift_right();
-    void arithmetic_shift_left();
-    void add_with_carry();
-    void subtract_with_carry();
-    void add_with_carry_helper(uint8_t);
-    void branch_on_bool(bool);
-    void increment_subtract();
-    void arithmetic_shift_left_or();
-    void rotate_left_and();
-    void shift_right_xor();
-    void rotate_right_add();
-    void decrement_compare();
-    void load_accumulator_x();
-    void bit();
-    void decrement();
-    void increment();
-    void boolean_or();
-    void boolean_and();
-    void boolean_xor();
-    void store_x_and_accumulator();
-    void store_x();
-    void load_x();
-    void jump();
-    void load_into_register(uint8_t*);
-
-    // addressing modes
-    uint16_t absolute_indexed_X(uint16_t);
-    uint16_t absolute_indexed_Y(uint16_t);
-    uint16_t indexed_indirect(uint8_t);
-    uint16_t indirect_indexed(uint8_t);
-    uint16_t indirect(uint8_t, uint8_t);
-
-    // memory access syntactic sugar
-    uint16_t get_operand();
-    uint16_t get_memory_index();
-    void store(uint8_t);
-
-    // other
-    void check_interrupt();
-    void increment_pc_cycles();
-    void run_instruction();
-    Opcode* opcodes;
-
-};
 
 void CPU::set_memory(Memory* mem_pointer) {
   memory = mem_pointer;
@@ -136,14 +30,15 @@ uint8_t CPU::stack_pop() {
 }
 
 void CPU::print_register_values() {
-  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%lu\n",
+  printf("PC:%04X A:%02X X:%02X Y:%02X P:%02X SP:%02X CYC:%3lu SL:%lu\n",
           PC,
           accumulator,
           X,
           Y,
           get_flags_as_byte(),
           SP,
-          (local_clock * 3) % 341);
+          (local_clock * 3) % 341,
+          (241 + (local_clock * 3) / 341) % 262);
 }
 
 // TODO: set B flag correctly, check if this even works
@@ -156,18 +51,22 @@ void CPU::check_interrupt() {
     if (interrupt_type == NMI) {
       PC = memory->nmi_vector();
     } else {
-      PC = memory-> irq_vector();
+      PC = memory->irq_vector();
     }
     local_clock += 7;
-    interrupt_type = NONE;
+    interrupt_type = NONE; // reset interrupt line
   }
+}
+
+void CPU::generate_nmi() {
+  interrupt_type = NMI;
 }
 
 void CPU::execute_instruction() {
   override_pc_increment = false;
   extra_cycle_taken = false;
   check_interrupt();
-  // print_register_values();
+  print_register_values();
   run_instruction();
   increment_pc_cycles();
 }
@@ -450,43 +349,13 @@ void CPU::boolean_or() {
 }
 
 void CPU::increment() {
-  // NOP
   store(get_operand() + 1);
   sign_zero_flags(get_operand());
-  extra_cycle_taken = (current_opcode.addressing_mode == ABSOLUTE_X);
 }
 
 void CPU::decrement() {
-  // DEX
-  if (current_opcode.addressing_mode == ACCUMULATOR) {
-    X = X - 1;
-    sign_zero_flags(X);
-  } else {
-    store(get_operand() - 1);
-    sign_zero_flags(get_operand());
-    extra_cycle_taken = (current_opcode.addressing_mode == ABSOLUTE_X);
-    local_clock += 2;
-  }
-}
-
-void CPU::store_x() {
-  if (current_opcode.addressing_mode == IMPLIED) {
-    SP = X;
-  } else {
-    store(X);
-  }
-  if (current_opcode.addressing_mode == ACCUMULATOR) {
-    sign_zero_flags(X);
-  }
-}
-
-void CPU::load_x() {
-  if (current_opcode.addressing_mode == IMPLIED) {
-    X = SP;
-  } else {
-    X = get_operand();
-  }
-  sign_zero_flags(X);
+  store(get_operand() - 1);
+  sign_zero_flags(get_operand());
 }
 
 void CPU::bit() {
@@ -508,7 +377,6 @@ void CPU::store_x_and_accumulator() {
 void CPU::decrement_compare() {
   store(get_operand() - 1);
   sign_zero_flags((accumulator - get_operand()) & 0xff);
-  local_clock += 2;
 }
 
 void CPU::rotate_right_add() {
@@ -537,9 +405,6 @@ void CPU::arithmetic_shift_left_or() {
 void CPU::increment_subtract() {
   store(get_operand() + 1);
   subtract_with_carry();
-  if (current_opcode.addressing_mode != IMMEDIATE) {
-    local_clock += 2;
-  }
 }
 
 void CPU::add_with_carry() {
@@ -785,7 +650,6 @@ uint16_t CPU::indirect(uint8_t arg1, uint8_t arg2) {
 void CPU::initialize() {
   accumulator = X = Y = 0;
   PC = memory->reset_vector();
-  PC = 0xc000; // just for nestest
   SP = 0xfd;
   valid = true;
   interrupt_disable = true;

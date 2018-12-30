@@ -12,11 +12,15 @@ public:
   uint8_t name_tables[0x1000];
   uint8_t palettes[0x20];
   uint8_t spr_ram[0x100];
+  uint8_t oam[0x100];
 
   // memory operations
   uint8_t* get_pointer(uint16_t);
   uint8_t* get_spr_pointer(uint8_t);
+  uint8_t read_oam(uint8_t);
   void set_pattern_tables(uint8_t*);
+  void dma_write_oam(uint8_t*);
+  void write_oam(uint8_t, uint8_t);
 };
 
 
@@ -38,4 +42,18 @@ uint8_t* PPUMemory::get_spr_pointer(uint8_t addr) {
 
 void PPUMemory::set_pattern_tables(uint8_t* pt_pointer) {
   pattern_tables = pt_pointer;
+}
+
+void PPUMemory::dma_write_oam(uint8_t* values) {
+  for(int i = 0; i < 0x100; ++i) {
+    oam[i] = values[i];
+  }
+}
+
+uint8_t PPUMemory::read_oam(uint8_t ind) {
+  return oam[ind];
+}
+
+void PPUMemory::write_oam(uint8_t ind, uint8_t val) {
+  oam[ind] = val;
 }

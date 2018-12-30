@@ -9,8 +9,16 @@ def get_my_log(ind):
     y = log_line[20:22]
     p = log_line[25:27]
     sp = log_line[31:33]
-    cyc = log_line[38:]
-    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp, 'cyc': int(cyc)}
+    cyc = log_line[38:41]
+    sc = log_line[45:48]
+    return {'pc':pc,
+            'a':a,
+            'x':x,
+            'y':y,
+            'p':p,
+            'sp':sp,
+            'cyc': int(cyc),
+            'sc': int(sc)}
 
 
 
@@ -23,20 +31,40 @@ def get_right_log(ind):
     p = log_line[65:67]
     sp = log_line[71:73]
     cyc = log_line[78:81]
-    return {'pc':pc, 'a':a, 'x':x, 'y':y, 'p':p, 'sp':sp, 'cyc': int(cyc)}
+    sc = int(log_line[85:88])
+    if sc == -1:
+        sc = 261
+    return {'pc':pc,
+            'a':a,
+            'x':x,
+            'y':y,
+            'p':p,
+            'sp':sp,
+            'cyc': int(cyc),
+            'sc': sc}
 
 
 
 
-with open("nestest.log", "r") as f:
+with open("dk.debug", "r") as f:
     correct_log = f.readlines()
 
-with open("my_nestest.log", "r") as f:
+with open("dk.log", "r") as f:
     my_log = f.readlines()
 
 
 
+diff = 0
+
 for i in range(0, len(correct_log)):
+    if i > 9929:
+        if get_my_log(i+3)['pc'] != get_right_log(i)['pc']:
+            print(i)
+            print(get_my_log(i))
+            print(get_right_log(i))
+            break
+        continue
+    
     if get_my_log(i)['pc'] != get_right_log(i)['pc']:
         print(i)
         print(get_my_log(i))

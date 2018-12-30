@@ -49,6 +49,8 @@ prebuilt opcode table: ~200 microseconds (8edcb51)
 
 [checked with g++ nes.cpp -std=c++11 -O3 -g -fno-omit-frame-pointer and std::chrono]
 
+- [ ] use latch in memory.cpp to take advantage of quickness of pure case switch and still do memory-mapped i/o (ppu, dma, etc) [maybe]
+
 
 ## Resources
 

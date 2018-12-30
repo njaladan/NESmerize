@@ -1,11 +1,6 @@
 #include <stdio.h>
 #include <stdint.h>
 
-// forward declarations
-class CPU;
-class PPUMemory;
-
-// hardwired for NROM (mapper 0) at the moment
 class Memory {
   public:
     uint8_t internal_ram[0x800];
@@ -33,10 +28,12 @@ class Memory {
     // hardware connections
     CPU* cpu;
     PPUMemory* ppumem;
+    PPU* ppu;
     void set_cpu(CPU*);
     void set_ppu_memory(PPUMemory*);
-
+    void set_ppu(PPU*);
 };
+
 
 void Memory::set_cpu(CPU* cpu_pointer) {
   cpu = cpu_pointer;
@@ -46,12 +43,16 @@ void Memory::set_ppu_memory(PPUMemory* ppu_mem_pointer) {
   ppumem = ppu_mem_pointer;
 }
 
+void Memory::set_ppu(PPU* ppu_pointer) {
+  ppu = ppu_pointer;
+}
+
 // TODO: evaluate if this can be private? or delet this
 uint8_t* Memory::get_pointer(uint16_t ind) {
   if (ind < 0x2000) {
-    return (internal_ram + ind % 800);
+    return (internal_ram + ind % 0x7ff);
   } else if (ind < 0x4000) {
-    return (ppu_reg + (ind & 0x8));
+    return (ppu_reg + (ind & 0x7));
   } else if (ind < 0x4020) {
     return (apu_io_registers + (ind & 0xff));
   } else if (ind < 0x8000) {
@@ -73,10 +74,20 @@ void Memory::set_prg_nrom_bottom(uint8_t* rom_pointer) {
 
 // set checks here
 uint8_t Memory::read(uint16_t ind) {
+  if (ind >= 0x2000 && ind < 0x4000) {
+    return ppu->read_register(ind & 0x7);
+  }
   return *get_pointer(ind);
 }
 
 void Memory::write(uint16_t ind, uint8_t val) {
+  if (ind == 0x4014) {
+    ppumem->dma_write_oam(get_pointer(val * 0x100));
+    cpu->local_clock += 513 + (cpu->local_clock & 0x1);
+  } else if (ind >= 0x2000 && ind < 0x4000) {
+    ppu->write_register(ind & 0x7, val);
+    return;
+  }
   *(get_pointer(ind)) = val;
 }
 
