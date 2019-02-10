@@ -37,8 +37,8 @@ void CPU::print_register_values() {
           Y,
           get_flags_as_byte(),
           SP,
-          (local_clock * 3) % 341,
-          (241 + (local_clock * 3) / 341) % 262);
+          get_current_cycle(),
+          get_current_scanline());
 }
 
 // TODO: set B flag correctly, check if this even works
@@ -56,6 +56,15 @@ void CPU::check_interrupt() {
     local_clock += 7;
     interrupt_type = NONE; // reset interrupt line
   }
+}
+
+uint64_t CPU::get_current_scanline() {
+  // don't ask me
+  return (241 + (local_clock * 3) / 341) % 262;
+}
+
+uint64_t CPU::get_current_cycle() {
+  return (local_clock * 3) % 341;
 }
 
 void CPU::generate_nmi() {
@@ -78,10 +87,22 @@ void CPU::increment_pc_cycles() {
   local_clock += current_opcode.cycles + extra_cycle_taken;
 }
 
+void CPU::set_ppu(PPU* ppu_pointer) {
+  ppu = ppu_pointer;
+}
+
 void CPU::run_instruction() {
   uint8_t opcode = memory->read(PC);
   current_opcode = opcodes[opcode];
   CPUFunction current_instruction = current_opcode.instruction;
+
+  // vblank catch up
+  if (get_current_scanline() == 240 &&
+      (get_current_cycle() + current_opcode.cycles * 3 > 340))
+     {
+       ppu->step_to((local_clock + current_opcode.cycles) * 3);
+  }
+
   switch(current_instruction) {
     case ADC:
       return add_with_carry();

@@ -21,6 +21,8 @@ public:
   void set_pattern_tables(uint8_t*);
   void dma_write_oam(uint8_t*);
   void write_oam(uint8_t, uint8_t);
+  uint8_t read(uint16_t);
+  void write(uint16_t, uint8_t);
 };
 
 
@@ -34,6 +36,14 @@ uint8_t* PPUMemory::get_pointer(uint16_t addr) {
   } else {
     return get_pointer(addr & 0x3fff);
   }
+}
+
+uint8_t PPUMemory::read(uint16_t ind) {
+  return *(get_pointer(ind));
+}
+
+void PPUMemory::write(uint16_t ind, uint8_t val) {
+  *(get_pointer(ind)) = val;
 }
 
 uint8_t* PPUMemory::get_spr_pointer(uint8_t addr) {

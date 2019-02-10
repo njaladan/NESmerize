@@ -55,6 +55,7 @@ class PPU {
 
   uint16_t previous_tick;
   uint16_t previous_scanline;
+  uint64_t local_clock; // this is 3x the cpu one
 
   // registers
   union Reg2000 reg2000;
@@ -67,13 +68,15 @@ class PPU {
   uint8_t ppudata;
 
   // latches
-  int8_t address_latch; // -1 means not set?
+  uint16_t total_ppuaddr; // 0 means not set?
 
   void set_memory(Memory*);
   void set_ppu_memory(PPUMemory*);
   void set_cpu(CPU*);
   void step_to(uint64_t);
   void initialize();
+  uint16_t get_current_cycle();
+  uint16_t get_current_scanline();
 
   uint8_t read_register(uint8_t);
   void write_register(uint8_t, uint8_t);
@@ -107,7 +110,6 @@ uint8_t PPU::read_register(uint8_t reg) {
     case 2: {
       uint8_t value = reg2002.value;
       reg2002.reg_data.vblank = false;
-      address_latch = -1;
       return value;
     };
 
@@ -156,33 +158,44 @@ void PPU::write_register(uint8_t reg, uint8_t val) {
       break;
 
     case 6:
+      total_ppuaddr = (ppuaddr << 8) | val;
+      ppudata = ppu_memory->read(total_ppuaddr);
+      ppuaddr = val;
       break;
 
     case 7:
+      ppu_memory->write(total_ppuaddr, val);
+      if (reg2000.reg_data.vram_address_increment) {
+        total_ppuaddr += 32;
+      } else {
+        total_ppuaddr += 1;
+      }
       break;
   }
 }
 
+uint16_t PPU::get_current_cycle() {
+  return local_clock % 341;
+}
+
+uint16_t PPU::get_current_scanline() {
+  return (241 + local_clock / 341) % 262;
+}
 
 void PPU::step_to(uint64_t cycle) {
-  uint16_t current_scanline = previous_scanline;
-  uint16_t current_tick = cycle % 341;
-  // new scanline
+  local_clock = cycle;
+  uint16_t current_scanline = get_current_scanline();
+  uint16_t current_tick = get_current_cycle();
+  // new scanline [overflow]
   if (current_tick < previous_tick) {
-    current_scanline = (previous_scanline + 1) % 262;
+    // vblank has started
     if (current_scanline == 241) {
       if (reg2000.reg_data.generate_nmi) {
         cpu->generate_nmi();
       }
-
       reg2002.reg_data.vblank = true;
     }
   }
   previous_scanline = current_scanline;
   previous_tick = current_tick;
-  // TODO: do the frame skip thing
-  if (current_scanline >= 240) {
-    return;
-  }
-  // do render stuff here
 }

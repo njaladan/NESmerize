@@ -1,4 +1,4 @@
-# nes-emu
+# NESmerize
 
 An NES emulator written in C++.
 

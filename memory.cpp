@@ -83,7 +83,7 @@ uint8_t Memory::read(uint16_t ind) {
 void Memory::write(uint16_t ind, uint8_t val) {
   if (ind == 0x4014) {
     ppumem->dma_write_oam(get_pointer(val * 0x100));
-    cpu->local_clock += 513 + (cpu->local_clock & 0x1);
+    cpu->local_clock += 513;
   } else if (ind >= 0x2000 && ind < 0x4000) {
     ppu->write_register(ind & 0x7, val);
     return;

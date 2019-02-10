@@ -35,6 +35,7 @@ class NES {
 
 void NES::create_system() {
   cpu.set_memory(&memory);
+  cpu.set_ppu(&ppu);
   ppu.set_memory(&memory);
   ppu.set_ppu_memory(&ppu_memory);
   ppu.set_cpu(&cpu);

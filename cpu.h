@@ -4,6 +4,7 @@ class PPU;
 class CPU {
   public:
     void set_memory(Memory*);
+    void set_ppu(PPU*);
     uint64_t local_clock;
 
     // handle state
@@ -98,6 +99,9 @@ class CPU {
     void check_interrupt();
     void increment_pc_cycles();
     void run_instruction();
+    uint64_t get_current_cycle();
+    uint64_t get_current_scanline();
     Opcode* opcodes;
+    PPU* ppu;
 
 };

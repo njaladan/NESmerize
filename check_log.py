@@ -57,15 +57,8 @@ with open("dk.log", "r") as f:
 diff = 0
 
 for i in range(0, len(correct_log)):
-    if i > 9929:
-        if get_my_log(i+3)['pc'] != get_right_log(i)['pc']:
-            print(i)
-            print(get_my_log(i))
-            print(get_right_log(i))
-            break
-        continue
     
-    if get_my_log(i)['pc'] != get_right_log(i)['pc']:
+    if get_my_log(i)['cyc'] != get_right_log(i)['cyc']:
         print(i)
         print(get_my_log(i))
         print(get_right_log(i))
