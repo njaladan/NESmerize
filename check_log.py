@@ -53,11 +53,31 @@ with open("dk.log", "r") as f:
     my_log = f.readlines()
 
 
+with open("index.txt", "r") as f:
+    hi = f.readlines()[0]
+    hi = hi.replace("(", " ")
+    hi = hi.replace(")", " ")
+    hi = hi.replace(",", "")
+    hi = hi.replace("  ", " ")
+    hi = hi.split()
+    hi = list(map(int, hi))
+    m = max(hi)
+    print(m)
+    print(hi[:500])
+
+
 
 diff = 0
 
 for i in range(0, len(correct_log)):
-    
+    if i >= 42595:
+        if get_my_log(i)['pc'] != get_right_log(i + 1)['pc']:
+            print(i)
+            print(get_my_log(i))
+            print(get_right_log(i + 1))
+            break
+        continue
+        
     if get_my_log(i)['cyc'] != get_right_log(i)['cyc']:
         print(i)
         print(get_my_log(i))

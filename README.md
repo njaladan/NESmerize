@@ -27,7 +27,6 @@ The code's pretty messy, since I've been prioritizing quantity of quality (at th
 - [x] refactor the opcode switch completely [low priority]
 - [x] have a instance variable for "extra cycle" flag
 - [ ] use a function for detecting upper byte overflow?
-- [ ] once running nes roms, remove unofficial opcode implementations
 - [ ] move enums and initializer lists to separate file
 
 
@@ -38,6 +37,9 @@ Smaller things to work on incrementally - more for me to not forget what I'm wor
 - [x] unofficial opcodes, starting at LAX
 - [x] keep in mind that mapper 0 is hardcoded into current logic (but that's still 250 games)
 - [ ] benchmark case-switch and check why it's so fast
+
+### Potential optimizations
+- [ ] only update framebuffer for changed tiles in nametable
 
 
 ## Benchmarks
@@ -50,6 +52,12 @@ prebuilt opcode table: ~200 microseconds (8edcb51)
 [checked with g++ nes.cpp -std=c++11 -O3 -g -fno-omit-frame-pointer and std::chrono]
 
 - [ ] use latch in memory.cpp to take advantage of quickness of pure case switch and still do memory-mapped i/o (ppu, dma, etc) [maybe]
+
+
+## Pictures
+
+![first output](img/first_output.jpg)
+![balloon](img/balloon.jpg)
 
 
 ## Resources

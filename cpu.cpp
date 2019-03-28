@@ -75,7 +75,7 @@ void CPU::execute_instruction() {
   override_pc_increment = false;
   extra_cycle_taken = false;
   check_interrupt();
-  print_register_values();
+  // print_register_values();
   run_instruction();
   increment_pc_cycles();
 }

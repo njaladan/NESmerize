@@ -55,6 +55,8 @@ class PPU {
 
   uint16_t previous_tick;
   uint16_t previous_scanline;
+  uint16_t current_scanline;
+  uint16_t current_tick;
   uint64_t local_clock; // this is 3x the cpu one
 
   // registers
@@ -66,6 +68,9 @@ class PPU {
   uint8_t scroll_offset;
   uint8_t ppuaddr;
   uint8_t ppudata;
+
+  // visual
+  uint8_t framebuffer[240][256];
 
   // latches
   uint16_t total_ppuaddr; // 0 means not set?
@@ -174,6 +179,7 @@ void PPU::write_register(uint8_t reg, uint8_t val) {
   }
 }
 
+// TODO: odd frame skip tick
 uint16_t PPU::get_current_cycle() {
   return local_clock % 341;
 }
@@ -184,9 +190,9 @@ uint16_t PPU::get_current_scanline() {
 
 void PPU::step_to(uint64_t cycle) {
   local_clock = cycle;
-  uint16_t current_scanline = get_current_scanline();
-  uint16_t current_tick = get_current_cycle();
-  // new scanline [overflow]
+  current_scanline = get_current_scanline();
+  current_tick = get_current_cycle();
+  // new scanline
   if (current_tick < previous_tick) {
     // vblank has started
     if (current_scanline == 241) {
@@ -194,6 +200,52 @@ void PPU::step_to(uint64_t cycle) {
         cpu->generate_nmi();
       }
       reg2002.reg_data.vblank = true;
+    }
+
+    // middle of rendering?
+    if (current_scanline == 0) {
+      if (reg2001.reg_data.background) {
+        // literally render entire frame as ascii LOL
+        for (int i = 0; i < 30; ++i) {
+          for (int j = 0; j < 32; ++j) {
+            uint8_t chr_ind = ppu_memory->read(0x2000 + i * 0x20 + j);
+            int memory_ind = chr_ind * 16 + 0x1000 * reg2000.reg_data.bg_pattern_table_address;
+            // each line of tile
+            for (int k = 0; k < 8; ++k) {
+              uint8_t lower_data = ppu_memory->read(memory_ind + k);
+              uint8_t upper_data = ppu_memory->read(memory_ind + 8 + k);
+              // each pixel of each line
+              for (int l = 7; l >= 0; l--) {
+                uint8_t palette = ((upper_data & 0x1) << 1) | (lower_data & 0x1);
+                framebuffer[8 * i + k][8 * j + l] = palette;
+                upper_data >>= 1;
+                lower_data >>= 1;
+              }
+            }
+          }
+        }
+
+        // print framebuffer
+        for (int x = 0; x < 240; ++x) {
+          for (int y = 0; y < 256; ++y) {
+            switch(framebuffer[x][y]) {
+              case 3:
+                printf("@");
+                break;
+              case 2:
+                printf("#");
+                break;
+              case 1:
+                printf("+");
+                break;
+              case 0:
+                printf(".");
+                break;
+            }
+          }
+          printf("\n");
+        }
+      }
     }
   }
   previous_scanline = current_scanline;

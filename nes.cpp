@@ -30,6 +30,9 @@ class NES {
   void load_program(char*);
   void play_game(char*);
   void run_game();
+
+  // debugging
+  void print_pattern_tables();
 };
 
 
@@ -73,21 +76,41 @@ void NES::load_program(char* filename) {
       ppu_memory.set_pattern_tables(chr_data);
     }
     cpu.initialize();
+
+    // print_pattern_tables();
+
+  }
+}
+
+void NES::print_pattern_tables() {
+  // for each tile
+  for(int i = 0; i < 512; ++i) {
+    int offset = 16 * i; // 16 bytes per tile
+
+    // for each line of each tile
+    for(int j = 0; j < 8; ++j) {
+      uint8_t data1 = ppu_memory.read(offset + j);
+      uint8_t data2 = ppu_memory.read(offset + 8 + j);
+
+      // for each pixel (bit) for each line [this is flipped]
+      for(int k = 0; k < 8; ++k) {
+        printf("%u", (data1 & 0x1) + ((data2 & 0x1) << 1));
+        data1 >>= 1;
+        data2 >>= 1;
+      }
+      printf("\n");
+    }
+    printf("--------\n");
   }
 }
 
 // alternative is to run CPU until PPU latch is
 // 'filled' and then step PPU to that point
 void NES::run_game() {
-  high_resolution_clock::time_point t1 = high_resolution_clock::now();
   while(cpu.valid) {
     cpu.execute_instruction();
     ppu.step_to(cpu.local_clock * 3); // PPU clock is 3x
   }
-  high_resolution_clock::time_point t2 = high_resolution_clock::now();
-  auto d = duration_cast<microseconds>(t2 - t1).count();
-  cout << d;
-
 }
 
 void NES::play_game(char* filename) {
