@@ -89,6 +89,7 @@ void CPU::increment_pc_cycles() {
 
 void CPU::set_ppu(PPU* ppu_pointer) {
   ppu = ppu_pointer;
+  local_clock = 0;
 }
 
 void CPU::run_instruction() {
@@ -104,6 +105,7 @@ void CPU::run_instruction() {
   }
 
   switch(current_instruction) {
+
     case ADC:
       return add_with_carry();
 
@@ -135,6 +137,8 @@ void CPU::run_instruction() {
       return branch_on_bool(!sign);
 
     case BRK:
+      // probably corrupted heap :(
+      exit(1);
       address_stack_push(PC + 2);
       b_lower = true;
       stack_push(get_flags_as_byte());

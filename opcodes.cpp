@@ -146,7 +146,7 @@ void OpcodeGenerator::set_instruction(Opcode& op) {
     op.addressing_mode == INDIRECT_Y
   ) {
     bool set_page_boundary = true;
-    for (int i; i < 7; ++i) {
+    for (int i = 0; i < 7; i++) {
       if (op.instruction == no_page_boundary[i]) {
         set_page_boundary = false;
         break;

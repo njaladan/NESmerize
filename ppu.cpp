@@ -1,91 +1,4 @@
-class Memory;
-class CPU;
 
-struct Reg2000Data {
-  bool x_scroll_offset : 1;
-  bool y_scroll_offset : 1;
-  bool vram_address_increment : 1;
-  bool sprite_pattern_table_address : 1;
-  bool bg_pattern_table_address : 1;
-  bool sprite_size : 1;
-  bool ppu_master_slave : 1;
-  bool generate_nmi : 1;
-};
-
-union Reg2000 {
-  uint8_t value;
-  Reg2000Data reg_data;
-};
-
-struct Reg2001Data {
-  bool grayscale : 1;
-  bool leftmost_background : 1;
-  bool leftmost_sprites : 1;
-  bool background : 1;
-  bool sprites : 1;
-  bool red : 1;
-  bool green : 1;
-  bool blue : 1;
-};
-
-union Reg2001 {
-  uint8_t value;
-  Reg2001Data reg_data;
-};
-
-struct Reg2002Data {
-  uint8_t lsb_ppu_write : 5;
-  bool sprite_overflow : 1;
-  bool sprite_0 : 1;
-  bool vblank : 1;
-};
-
-union Reg2002 {
-  uint8_t value;
-  Reg2002Data reg_data;
-};
-
-
-class PPU {
-  public:
-  // hardware connections
-  Memory* memory;
-  CPU* cpu;
-  PPUMemory* ppu_memory;
-
-  uint16_t previous_tick;
-  uint16_t previous_scanline;
-  uint16_t current_scanline;
-  uint16_t current_tick;
-  uint64_t local_clock; // this is 3x the cpu one
-
-  // registers
-  union Reg2000 reg2000;
-  union Reg2001 reg2001;
-  union Reg2002 reg2002;
-  uint8_t oamaddr;
-  uint8_t oamdata;
-  uint8_t scroll_offset;
-  uint8_t ppuaddr;
-  uint8_t ppudata;
-
-  // visual
-  uint8_t framebuffer[240][256];
-
-  // latches
-  uint16_t total_ppuaddr; // 0 means not set?
-
-  void set_memory(Memory*);
-  void set_ppu_memory(PPUMemory*);
-  void set_cpu(CPU*);
-  void step_to(uint64_t);
-  void initialize();
-  uint16_t get_current_cycle();
-  uint16_t get_current_scanline();
-
-  uint8_t read_register(uint8_t);
-  void write_register(uint8_t, uint8_t);
-};
 
 void PPU::set_memory(Memory* mem_pointer) {
   memory = mem_pointer;
@@ -99,9 +12,19 @@ void PPU::set_cpu(CPU* cpu_pointer) {
   cpu = cpu_pointer;
 }
 
+void PPU::set_gui(GUI* gui_ptr) {
+  gui = gui_ptr;
+}
+
 void PPU::initialize() {
   previous_scanline = 241;
   previous_tick = 0;
+  local_clock = 0;
+  current_tick = 0;
+  current_scanline = 0;
+  reg2000.value = 0;
+  reg2001.value = 0;
+  reg2002.value = 0;
 }
 
 uint8_t PPU::read_register(uint8_t reg) {
@@ -202,7 +125,7 @@ void PPU::step_to(uint64_t cycle) {
       reg2002.reg_data.vblank = true;
     }
 
-    // middle of rendering?
+    // TODO: have cycle-accurate memory accesses & render during "VBlank" LOL
     if (current_scanline == 0) {
       if (reg2001.reg_data.background) {
         // literally render entire frame as ascii LOL
@@ -216,38 +139,43 @@ void PPU::step_to(uint64_t cycle) {
               uint8_t upper_data = ppu_memory->read(memory_ind + 8 + k);
               // each pixel of each line
               for (int l = 7; l >= 0; l--) {
-                uint8_t palette = ((upper_data & 0x1) << 1) | (lower_data & 0x1);
-                framebuffer[8 * i + k][8 * j + l] = palette;
+                uint8_t palette_offset = ((upper_data & 0x1) << 1) | (lower_data & 0x1);
+                write_to_framebuffer(framebuffer, 8 * j + l, 8 * i + k, palette_offset);
                 upper_data >>= 1;
                 lower_data >>= 1;
               }
             }
           }
         }
-
-        // print framebuffer
-        for (int x = 0; x < 240; ++x) {
-          for (int y = 0; y < 256; ++y) {
-            switch(framebuffer[x][y]) {
-              case 3:
-                printf("@");
-                break;
-              case 2:
-                printf("#");
-                break;
-              case 1:
-                printf("+");
-                break;
-              case 0:
-                printf(".");
-                break;
-            }
-          }
-          printf("\n");
-        }
+        frames++;
+        gui->render_frame(framebuffer);
       }
     }
   }
   previous_scanline = current_scanline;
   previous_tick = current_tick;
+}
+
+void PPU::write_to_framebuffer(uint8_t* framebuffer, uint8_t x, uint8_t y, uint8_t palette_offset) {
+  // background color
+  uint8_t color_ind;
+  if (palette_offset == 0) {
+    color_ind = ppu_memory->read(0x3f00);
+  } else {
+    uint8_t attribute_offset = ((y >> 5) << 3) + (x >> 5);
+    uint8_t attribute = ppu_memory->read(0x23c0 + attribute_offset);
+    uint8_t x_offset = (x >> 4) & 0x1;
+    uint8_t y_offset = (y >> 4) & 0x1;
+    uint8_t total_offset = (y_offset << 2) | (x_offset << 1);
+    uint8_t palette_ind = (attribute >> total_offset) & 0x3;
+    color_ind = ppu_memory->read(0x3f00 | (palette_ind << 2) | palette_offset);
+  }
+
+  int index = 4 * (y * 256 + x); // 4 bytes per pixel
+  struct Color color = PALETTE[color_ind];
+
+  framebuffer[index] = color.blue;
+  framebuffer[index + 1] = color.green;
+  framebuffer[index + 2] = color.red;
+  framebuffer[index + 3] = 0xff; // no opacity
 }

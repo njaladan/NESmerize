@@ -33,14 +33,14 @@ uint8_t* PPUMemory::get_pointer(uint16_t addr) {
   } else if (addr < 0x3f00) {
     return name_tables + ((addr - 0x2000) & 0xfff);
   } else if (addr < 0x4000) {
+    if (addr & 0x13 == 0x10) {
+      addr -= 0x10;
+    }
     return palettes + ((addr - 0x3f00) & 0x1f);
   }
 }
 
 uint8_t PPUMemory::read(uint16_t ind) {
-  uint8_t* ptr = get_pointer(7472);
-  uint8_t val = *(get_pointer(7472));
-  uint8_t val2 = *(get_pointer(7472));
   return *(get_pointer(ind));
 }
 

@@ -47,20 +47,19 @@ void Memory::set_ppu(PPU* ppu_pointer) {
   ppu = ppu_pointer;
 }
 
-// TODO: evaluate if this can be private? or delet this
 uint8_t* Memory::get_pointer(uint16_t ind) {
   if (ind < 0x2000) {
-    return (internal_ram + ind % 0x7ff);
+    return (internal_ram + (ind & 0x7ff));
   } else if (ind < 0x4000) {
     return (ppu_reg + (ind & 0x7));
   } else if (ind < 0x4020) {
-    return (apu_io_registers + (ind & 0xff));
+    return (apu_io_registers + (ind & 0x1f));
   } else if (ind < 0x8000) {
     return blank;
   } else if (ind < 0xc000) {
-    return prg_nrom_top + (ind - 0x8000);
+    return prg_nrom_top + (ind & 0x7fff);
   } else {
-    return prg_nrom_bottom + (ind - 0xc000);
+    return prg_nrom_bottom + (ind & 0x3fff);
   }
 }
 
