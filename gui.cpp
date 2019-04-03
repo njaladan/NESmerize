@@ -63,6 +63,8 @@ void GUI::close_gui() {
   valid = false;
 }
 
+
+// TODO: why does this work at 60fps even without vsync or anything?
 void GUI::render_frame(uint8_t* framebuffer) {
 	SDL_Event e;
 

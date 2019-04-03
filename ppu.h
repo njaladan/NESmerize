@@ -45,6 +45,13 @@ union Reg2002 {
   Reg2002Data reg_data;
 };
 
+struct SpriteAttributes {
+  uint8_t palette : 2;
+  uint8_t unimplemented : 3;
+  bool priority : 1;
+  bool flip_horizontal : 1;
+  bool flip_vertical : 1;
+};
 
 class PPU {
   public:
@@ -88,5 +95,7 @@ class PPU {
 
   uint8_t read_register(uint8_t);
   void write_register(uint8_t, uint8_t);
-  void write_to_framebuffer(uint8_t*, uint8_t, uint8_t, uint8_t);
+  void write_background_tile_palette(Color*, uint8_t, uint8_t);
+  void write_sprite_tile_palette(Color*, uint8_t);
+  void write_to_framebuffer(uint8_t*, uint8_t, uint8_t, Color);
 };
