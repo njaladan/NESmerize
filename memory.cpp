@@ -25,13 +25,20 @@ class Memory {
     void set_prg_nrom_bottom(uint8_t*);
     void set_prg_nrom_top(uint8_t*);
 
+    // controller port
+    void update_input();
+    uint8_t input_byte; // byte with input
+    bool input_strobe; // strobe indicates if input should be updated
+
     // hardware connections
     CPU* cpu;
     PPUMemory* ppumem;
     PPU* ppu;
+    GUI* gui;
     void set_cpu(CPU*);
     void set_ppu_memory(PPUMemory*);
     void set_ppu(PPU*);
+    void set_gui(GUI*);
 };
 
 
@@ -45,6 +52,10 @@ void Memory::set_ppu_memory(PPUMemory* ppu_mem_pointer) {
 
 void Memory::set_ppu(PPU* ppu_pointer) {
   ppu = ppu_pointer;
+}
+
+void Memory::set_gui(GUI* gui_pointer) {
+  gui = gui_pointer;
 }
 
 uint8_t* Memory::get_pointer(uint16_t ind) {
@@ -75,8 +86,20 @@ void Memory::set_prg_nrom_bottom(uint8_t* rom_pointer) {
 uint8_t Memory::read(uint16_t ind) {
   if (ind >= 0x2000 && ind < 0x4000) {
     return ppu->read_register(ind & 0x7);
+  } else if (ind == 0x4016) { // input from controller 1
+    uint8_t retval = 0x40 | (input_byte & 0x1); // some games expect 0x4 as the leading nibble
+    if (input_strobe) {
+      update_input();
+    } else {
+      input_byte >>= 1;
+    }
+    return retval;
   }
   return *get_pointer(ind);
+}
+
+void Memory::update_input() {
+  input_byte = gui->get_input();
 }
 
 void Memory::write(uint16_t ind, uint8_t val) {
@@ -85,6 +108,12 @@ void Memory::write(uint16_t ind, uint8_t val) {
     cpu->local_clock += 513;
   } else if (ind >= 0x2000 && ind < 0x4000) {
     ppu->write_register(ind & 0x7, val);
+    return;
+  } else if (ind == 0x4016) {
+    input_strobe = val & 0x1;
+    if (input_strobe) {
+      update_input();
+    }
     return;
   }
   *(get_pointer(ind)) = val;

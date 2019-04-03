@@ -1,6 +1,7 @@
 class GUI {
   public:
   PPU* ppu;
+  Memory* memory;
   SDL_Window* window;
   SDL_Renderer* renderer;
   SDL_Texture* texture;
@@ -12,6 +13,23 @@ class GUI {
   void initialize();
   void close_gui();
   void render_frame(uint8_t*);
+  uint8_t get_input();
+};
+
+struct InputData {
+  bool a : 1;
+  bool b : 1;
+  bool select : 1;
+  bool start : 1;
+  bool up : 1;
+  bool down : 1;
+  bool left : 1;
+  bool right : 1;
+};
+
+union Input {
+  uint8_t value;
+  InputData data;
 };
 
 void GUI::initialize() {
@@ -63,6 +81,53 @@ void GUI::close_gui() {
   valid = false;
 }
 
+uint8_t GUI::get_input() {
+  Input input_data;
+  SDL_Event e;
+  input_data.value = 0;
+
+  while (SDL_PollEvent(&e) != 0) {
+    if (e.type == SDL_QUIT) {
+      close_gui();
+      return 0;
+    } else if (e.type == SDL_KEYDOWN) {
+      switch(e.key.keysym.sym) {
+        case SDLK_UP:
+          input_data.data.up = 1;
+          break;
+
+        case SDLK_DOWN:
+          input_data.data.down = 1;
+          break;
+
+        case SDLK_LEFT:
+          input_data.data.left = 1;
+          break;
+
+        case SDLK_RIGHT:
+          input_data.data.right = 1;
+          break;
+
+        case SDLK_z:
+          input_data.data.a = 1;
+          break;
+
+        case SDLK_x:
+          input_data.data.b = 1;
+          break;
+
+        case SDLK_RSHIFT:
+          input_data.data.select = 1;
+          break;
+
+        case SDLK_RETURN:
+          input_data.data.start = 1;
+          break;
+      }
+    }
+  }
+  return input_data.value;
+}
 
 // TODO: why does this work at 60fps even without vsync or anything?
 void GUI::render_frame(uint8_t* framebuffer) {

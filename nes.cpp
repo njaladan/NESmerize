@@ -52,6 +52,7 @@ void NES::create_system() {
   memory.set_cpu(&cpu);
   memory.set_ppu_memory(&ppu_memory);
   memory.set_ppu(&ppu);
+  memory.set_gui(&gui);
   ppu.initialize();
   gui.initialize();
 }
