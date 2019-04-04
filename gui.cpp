@@ -83,49 +83,36 @@ void GUI::close_gui() {
 
 uint8_t GUI::get_input() {
   Input input_data;
-  SDL_Event e;
   input_data.value = 0;
+  SDL_PumpEvents(); // update event queue to avoid being a frame behind
+  const uint8_t* keystate = SDL_GetKeyboardState(NULL);
 
-  while (SDL_PollEvent(&e) != 0) {
-    if (e.type == SDL_QUIT) {
-      close_gui();
-      return 0;
-    } else if (e.type == SDL_KEYDOWN) {
-      switch(e.key.keysym.sym) {
-        case SDLK_UP:
-          input_data.data.up = 1;
-          break;
-
-        case SDLK_DOWN:
-          input_data.data.down = 1;
-          break;
-
-        case SDLK_LEFT:
-          input_data.data.left = 1;
-          break;
-
-        case SDLK_RIGHT:
-          input_data.data.right = 1;
-          break;
-
-        case SDLK_z:
-          input_data.data.a = 1;
-          break;
-
-        case SDLK_x:
-          input_data.data.b = 1;
-          break;
-
-        case SDLK_RSHIFT:
-          input_data.data.select = 1;
-          break;
-
-        case SDLK_RETURN:
-          input_data.data.start = 1;
-          break;
-      }
-    }
+  // update bitfield with information about keyboard
+  if (keystate[SDL_SCANCODE_DOWN]) {
+    input_data.data.down = 1;
   }
+  if (keystate[SDL_SCANCODE_UP]) {
+    input_data.data.up = 1;
+  }
+  if (keystate[SDL_SCANCODE_RIGHT]) {
+    input_data.data.right = 1;
+  }
+  if (keystate[SDL_SCANCODE_LEFT]) {
+    input_data.data.left = 1;
+  }
+  if (keystate[SDL_SCANCODE_Z]) {
+    input_data.data.a = 1;
+  }
+  if (keystate[SDL_SCANCODE_X]) {
+    input_data.data.b = 1;
+  }
+  if (keystate[SDL_SCANCODE_RSHIFT]) {
+    input_data.data.select = 1;
+  }
+  if (keystate[SDL_SCANCODE_RETURN]) {
+    input_data.data.start = 1;
+  }
+
   return input_data.value;
 }
 

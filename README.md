@@ -12,7 +12,7 @@ A to-do list, (roughly) in order of priority.
 - [x] iNES memory mapper 0 [NROM]
 - [ ] SDL gui
 - [ ] PPU scrolling
-- [ ] APU support [stretch goal?]
+- [ ] APU support
 - [ ] memory mappers 1, 2
 - [ ] save support
 
@@ -56,9 +56,7 @@ prebuilt opcode table: ~200 microseconds (8edcb51)
 
 ## Pictures
 
-![first output](img/first_output.jpg)
-![balloon](img/balloon.jpg)
-
+![screencap of me sucking](img/dk.png)
 
 ## Resources
 
