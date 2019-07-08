@@ -1,3 +1,5 @@
+// TODO: think about apu communication with gui?
+
 class GUI {
   public:
   PPU* ppu;
@@ -33,7 +35,7 @@ union Input {
 };
 
 void GUI::initialize() {
-  SDL_Init(SDL_INIT_VIDEO);
+  SDL_Init(SDL_INIT_VIDEO || SDL_INIT_AUDIO);
 	// Create window
 	window = SDL_CreateWindow(
     "NESmerize",

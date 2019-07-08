@@ -111,6 +111,14 @@ uint16_t PPU::get_current_scanline() {
   return (241 + local_clock / 341) % 262;
 }
 
+void PPU::run_cycle() {
+  current_scanline = get_current_scanline();
+  current_tick = get_current_cycle();
+
+
+
+}
+
 void PPU::step_to(uint64_t cycle) {
   local_clock = cycle;
   current_scanline = get_current_scanline();
@@ -157,7 +165,7 @@ void PPU::step_to(uint64_t cycle) {
         // render sprites
         // TODO: use a bitfield and / or structs for this
         uint8_t* oam = ppu_memory->oam;
-        for (int sprite = 0; sprite < 64; ++sprite) {
+        for (int sprite = 63; sprite >= 0; --sprite) {
           uint8_t y_pos = oam[4 * sprite];
           uint8_t tile_index = oam[4 * sprite + 1];
           // TODO: fix this ugly with union

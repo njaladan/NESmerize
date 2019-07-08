@@ -89,9 +89,11 @@ class PPU {
   void set_cpu(CPU*);
   void set_gui(GUI*);
   void step_to(uint64_t);
+  void run_cycle();
   void initialize();
   uint16_t get_current_cycle();
   uint16_t get_current_scanline();
+
 
   uint8_t read_register(uint8_t);
   void write_register(uint8_t, uint8_t);
